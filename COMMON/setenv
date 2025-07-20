@@ -1,0 +1,19 @@
+#!/bin/bash
+
+VENV_DIR="${PWD}/.venv"
+
+if [ -d "$VENV_DIR" ]; then
+    echo "Activating existing virtual environment..."
+
+    echo "After activation, you can use:"
+    echo "  invoke test    # Run tests"
+    echo "  invoke build   # Build project"
+    echo "  invoke run     # Run project"
+
+ # Start a new shell with the venv activated
+    source "$VENV_DIR/bin/activate"
+else
+    echo "Virtual environment not found. Creating with setenv.py..."
+    python3 setenv.py
+    source "$VENV_DIR/bin/activate"
+fi
