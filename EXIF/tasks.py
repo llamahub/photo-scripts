@@ -1,221 +1,78 @@
-"""Invoke tasks for project management - all tools run from local .venv."""
+"""Project-specific invoke tasks for EXIF project."""
 
-import os
 import sys
 from pathlib import Path
-from invoke import task, Context
+from invoke import task
 
+# Add COMMON directory to path and import common tasks
+common_dir = Path(__file__).parent.parent / "COMMON"
+sys.path.insert(0, str(common_dir))
 
-def get_venv_python():
-    """Get the path to the virtual environment's python executable."""
-    venv_path = Path(".venv")
-    if os.name == "nt":  # Windows
-        return venv_path / "Scripts" / "python.exe"
-    else:  # Unix-like
-        return venv_path / "bin" / "python"
+# Import all common functionality from common_tasks module
+from common_tasks import (
+    get_venv_python, get_venv_executable, ensure_venv,
+    setup, clean, lint, format, test, build, run, install, 
+    deps, shell, scripts, status
+)
 
-
-def get_venv_executable(tool_name):
-    """Get the path to a tool in the virtual environment."""
-    venv_path = Path(".venv")
-    if os.name == "nt":  # Windows
-        return venv_path / "Scripts" / tool_name
-    else:  # Unix-like
-        return venv_path / "bin" / tool_name
-
-
-def ensure_venv(ctx):
-    """Ensure virtual environment exists before running tasks."""
-    venv_path = Path(".venv")
-    if not venv_path.exists():
-        print("Virtual environment not found. Run 'python setenv.py' first.")
-        sys.exit(1)
-
+# This file inherits all tasks from COMMON/common_tasks.py
+# You can add project-specific tasks below or override common tasks
 
 @task
-def setup(ctx):
-    """Setup the project environment."""
-    print("Setting up project environment...")
-    ctx.run("python setenv.py", pty=True)
-
-
-@task
-def clean(ctx):
-    """Clean build artifacts."""
+def sample_demo(ctx, count=5):
+    """Run a demo of the sample script with test data."""
+    import tempfile
+    import os
+    
     ensure_venv(ctx)
-    print("Cleaning build artifacts...")
     
-    # Remove common build directories
-    dirs_to_clean = [
-        ".pytest_cache",
-        "__pycache__",
-        "*.egg-info",
-        "build",
-        "dist",
-        ".coverage",
-        ".mypy_cache"
-    ]
-    
-    python_path = get_venv_python()
-    for pattern in dirs_to_clean:
-        if os.name == "nt":  # Windows
-            ctx.run(f'for /d /r . %d in ({pattern}) do @if exist "%d" rd /s /q "%d"', warn=True)
-            ctx.run(f'del /s /q {pattern} 2>nul', warn=True)
-        else:  # Unix-like
-            ctx.run(f"find . -name '{pattern}' -exec rm -rf {{}} + 2>/dev/null || true")
+    # Create temporary test structure
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        source_dir = temp_path / "demo_photos"
+        target_dir = temp_path / "sampled_photos"
+        
+        # Create test directory structure
+        folders = [source_dir, source_dir / "folder1", source_dir / "folder2"]
+        for folder in folders:
+            folder.mkdir(parents=True, exist_ok=True)
+        
+        # Create test image files
+        test_images = [
+            source_dir / "root_image1.jpg",
+            source_dir / "root_image2.png", 
+            source_dir / "folder1" / "photo1.jpg",
+            source_dir / "folder1" / "photo2.tiff",
+            source_dir / "folder2" / "image1.jpeg",
+            source_dir / "folder2" / "image2.bmp"
+        ]
+        
+        for img in test_images:
+            img.touch()
+            
+        print(f"Created demo structure with {len(test_images)} test images")
+        print(f"Source: {source_dir}")
+        print(f"Target: {target_dir}")
+        print(f"Running sample script with {count} files...")
+        
+        # Run the sample script
+        python_path = get_venv_python()
+        cmd = f"{python_path} scripts/run.py sample --source {source_dir} --target {target_dir} --files {count} --debug"
+        ctx.run(cmd, pty=True)
+        
+        # Show results
+        print(f"\nResults in {target_dir}:")
+        if target_dir.exists():
+            for file in target_dir.rglob("*"):
+                if file.is_file():
+                    rel_path = file.relative_to(target_dir)
+                    print(f"  {rel_path}")
+        else:
+            print("  No files copied")
 
-
-@task
-def lint(ctx):
-    """Run linting tools."""
-    ensure_venv(ctx)
-    print("Running linting...")
-    
-    python_path = get_venv_python()
-    
-    # Run black
-    print("Running black...")
-    ctx.run(f"{python_path} -m black --check src/ tests/", warn=True)
-    
-    # Run flake8
-    print("Running flake8...")
-    ctx.run(f"{python_path} -m flake8 src/ tests/", warn=True)
-    
-    # Run mypy
-    print("Running mypy...")
-    ctx.run(f"{python_path} -m mypy src/", warn=True)
-
-
-@task
-def format(ctx):
-    """Format code with black."""
-    ensure_venv(ctx)
-    print("Formatting code...")
-    python_path = get_venv_python()
-    ctx.run(f"{python_path} -m black src/ tests/")
-
-
-@task
-def test(ctx, coverage=True, verbose=False):
-    """Run tests."""
-    ensure_venv(ctx)
-    print("Running tests...")
-    
-    python_path = get_venv_python()
-    cmd = f"{python_path} -m pytest"
-    if coverage:
-        cmd += " --cov=src --cov-report=html --cov-report=term"
-    if verbose:
-        cmd += " -v"
-    
-    ctx.run(cmd, pty=True)
-
-
-@task
-def build(ctx):
-    """Build the project."""
-    ensure_venv(ctx)
-    print("Building project...")
-    
-    python_path = get_venv_python()
-    
-    # Clean first
-    clean(ctx)
-    
-    # Run linting
-    lint(ctx)
-    
-    # Run tests
-    test(ctx)
-    
-    # Build package
-    #ctx.run(f"{python_path} -m build", warn=True)
-
-
-@task
-def run(ctx, env="dev"):
-    """Run the project."""
-    ensure_venv(ctx)
-    print(f"Running project in {env} environment...")
-    
-    python_path = get_venv_python()
-    
-    # Set environment
-    os.environ["ENVIRONMENT"] = env
-    
-    # Run main script
-    main_script = Path("src") / Path.cwd().name / "main.py"
-    if main_script.exists():
-        ctx.run(f"{python_path} {main_script}", pty=True)
-    else:
-        ctx.run(f"{python_path} scripts/run.py", pty=True)
-
-
-@task
-def install(ctx, dev=False):
-    """Install the project."""
-    ensure_venv(ctx)
-    print("Installing project...")
-    
-    python_path = get_venv_python()
-    pip_path = get_venv_python().parent / ("pip.exe" if os.name == "nt" else "pip")
-    
-    if dev:
-        ctx.run(f"{pip_path} install -e .", pty=True)
-    else:
-        ctx.run(f"{pip_path} install .", pty=True)
-
-
-@task
-def deps(ctx):
-    """Update dependencies."""
-    ensure_venv(ctx)
-    print("Updating dependencies...")
-    
-    pip_path = get_venv_python().parent / ("pip.exe" if os.name == "nt" else "pip")
-    
-    # Check if pyproject.toml exists
-    if Path("pyproject.toml").exists():
-        ctx.run(f"{pip_path} install -e .[dev]", pty=True)
-    elif Path("requirements.txt").exists():
-        ctx.run(f"{pip_path} install -r requirements.txt", pty=True)
-
-
-@task
-def shell(ctx):
-    """Start a shell with the virtual environment activated."""
-    ensure_venv(ctx)
-    venv_path = Path(".venv")
-    
-    if os.name == "nt":  # Windows
-        activate_script = venv_path / "Scripts" / "activate.bat"
-        print(f"Starting shell with virtual environment...")
-        print(f"Virtual environment: {venv_path.absolute()}")
-        ctx.run(f'cmd /k "{activate_script}"')
-    else:  # Unix-like
-        activate_script = venv_path / "bin" / "activate"
-        shell = os.environ.get("SHELL", "/bin/bash")
-        print(f"Starting shell with virtual environment...")
-        print(f"Virtual environment: {venv_path.absolute()}")
-        ctx.run(f'bash --rcfile <(echo "source {activate_script}; echo \'Virtual environment activated: {venv_path.absolute()}\'") -i')
-
-
-@task
-def status(ctx):
-    """Show project status and virtual environment info."""
-    venv_path = Path(".venv")
-    python_path = get_venv_python()
-    
-    print("=== Project Status ===")
-    print(f"Project directory: {Path.cwd()}")
-    print(f"Virtual environment: {venv_path.absolute()}")
-    print(f"Virtual environment exists: {venv_path.exists()}")
-    
-    if venv_path.exists():
-        print(f"Python executable: {python_path}")
-        # Show installed packages
-        pip_path = python_path.parent / ("pip.exe" if os.name == "nt" else "pip")
-        print("\n=== Installed Packages ===")
-        ctx.run(f"{pip_path} list", pty=True)
-    else:
-        print("Run 'python setenv.py' or 'invoke setup' to create virtual environment.")
+# Example of how to override a common task:
+# @task
+# def custom_run(ctx, script=None, args="", env="dev"):
+#     """Override the common run task with project-specific behavior."""
+#     # Custom implementation here
+#     pass

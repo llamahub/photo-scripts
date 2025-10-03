@@ -1,14 +1,9 @@
-"""Standard invoke tasks - imports all common tasks from common_tasks.py.""""""Standard invoke tasks - imports all common tasks from common_tasks.py."""
+"""Invoke tasks for project management - all tools run from local .venv."""
 
-
-
-from common_tasks import *  # noqa: F403, F401from common_tasks import *  # noqa: F403, F401
-
-
-
-# This is the default tasks.py for projects that don't need custom tasks# This is the default tasks.py for projects that don't need custom tasks
-
-# It simply imports all tasks from common_tasks.py# It simply imports all tasks from common_tasks.py
+import os
+import sys
+from pathlib import Path
+from invoke import task, Context
 
 
 def get_venv_python():
@@ -159,17 +154,19 @@ def run(ctx, script=None, args="", env="dev"):
     os.environ["ENVIRONMENT"] = env
     
     if script:
-        # Check if scripts/run.py exists
-        run_script = Path("scripts/run.py")
-        if run_script.exists():
-            # Run specific script through run.py
-            print(f"Running script '{script}' with args: {args}")
-            cmd = f"{python_path} scripts/run.py {script}"
-            if args:
-                cmd += f" {args}"
-            ctx.run(cmd, pty=True)
+        # Check if local scripts/run.py exists, otherwise use common one
+        local_run_script = Path("scripts/run.py")
+        common_run_script = Path(__file__).parent / "scripts" / "run.py"
+        
+        if local_run_script.exists():
+            run_script_path = local_run_script
+        elif common_run_script.exists():
+            run_script_path = common_run_script
+            # Copy common run.py to local scripts directory if it doesn't exist
+            scripts_dir = Path("scripts")
+            scripts_dir.mkdir(exist_ok=True)
         else:
-            # Try to run script directly
+            # Fallback: try to run script directly
             script_path = Path("scripts") / f"{script}.py"
             if script_path.exists():
                 print(f"Running script '{script}' directly with args: {args}")
@@ -177,9 +174,17 @@ def run(ctx, script=None, args="", env="dev"):
                 if args:
                     cmd += f" {args}"
                 ctx.run(cmd, pty=True)
+                return
             else:
                 print(f"Error: Script '{script}.py' not found in scripts/ directory")
                 return
+        
+        # Run specific script through run.py
+        print(f"Running script '{script}' with args: {args}")
+        cmd = f"{python_path} {run_script_path} {script}"
+        if args:
+            cmd += f" {args}"
+        ctx.run(cmd, pty=True)
     else:
         # Run main project
         print(f"Running project in {env} environment...")
@@ -289,7 +294,13 @@ def scripts(ctx):
                     print(f"  {script}")
             
             print(f"\nUsage: invoke run --script <script_name> --args '<arguments>'")
-            print(f"   or: python scripts/run.py <script_name> [arguments...]")
+            # Check where run.py is located
+            if Path("scripts/run.py").exists():
+                print(f"   or: python scripts/run.py <script_name> [arguments...]")
+            else:
+                common_run = Path(__file__).parent / "scripts" / "run.py"
+                if common_run.exists():
+                    print(f"   or: python {common_run} <script_name> [arguments...]")
         else:
             print("  No scripts found")
     else:

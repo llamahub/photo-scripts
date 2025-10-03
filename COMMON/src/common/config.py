@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any
-from pydantic import Field
+from pydantic import Field, ConfigDict
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -32,10 +32,9 @@ class BaseConfig(BaseSettings):
     api_port: int = Field(default=8000, description="API port")
     api_debug: bool = Field(default=True, description="API debug mode")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = ConfigDict(
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False
+    )
 
 
 def load_config(project_path: Optional[Path] = None, env: str = "dev") -> BaseConfig:
