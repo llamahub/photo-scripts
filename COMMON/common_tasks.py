@@ -13,6 +13,34 @@ except ImportError:
     ScriptLogging = None
 
 
+def task_header(task_name: str, description: str, ctx: Context = None, **kwargs):
+    """Print a standard header for invoke tasks.
+    
+    Args:
+        task_name: Name of the task
+        description: Brief description of what the task does
+        ctx: Invoke context (optional, used to get actual args)
+        **kwargs: Task arguments to display
+    """
+    print("=" * 80)
+    print(f"=== [{task_name}] {description}")
+    print("=" * 80)
+    
+    # Build the command line that was used
+    cmd_parts = ["> invoke", task_name]
+    
+    # Add arguments if provided
+    if kwargs:
+        for key, value in kwargs.items():
+            if value is True:
+                cmd_parts.append(f"--{key.replace('_', '-')}")
+            elif value is not False and value is not None:
+                cmd_parts.append(f"--{key.replace('_', '-')} {value}")
+    
+    print(" ".join(cmd_parts))
+    print()
+
+
 def get_venv_python():
     """Get the path to the virtual environment's python executable."""
     venv_path = Path(".venv")
@@ -42,7 +70,7 @@ def ensure_venv(ctx):
 @task
 def setup(ctx):
     """Setup the project environment."""
-    print("Setting up project environment...")
+    task_header("setup", "Setup the project environment", ctx)
     ctx.run("python setenv.py", pty=True)
 
 
@@ -54,8 +82,9 @@ def clean(ctx, temp_age_hours=None):
         temp_age_hours: Only clean temporary files older than this many hours.
                        If not specified, clean all temporary files.
     """
+    task_header("clean", "Clean build artifacts and temporary directories", ctx, 
+                temp_age_hours=temp_age_hours)
     ensure_venv(ctx)
-    print("Cleaning build artifacts and temporary directories...")
     
     # Remove common build directories
     dirs_to_clean = [
@@ -151,8 +180,8 @@ def clean(ctx, temp_age_hours=None):
 @task
 def lint(ctx):
     """Run linting tools."""
+    task_header("lint", "Run linting tools (black, flake8, mypy)", ctx)
     ensure_venv(ctx)
-    print("Running linting...")
     
     python_path = get_venv_python()
     
@@ -172,8 +201,8 @@ def lint(ctx):
 @task
 def format(ctx):
     """Format code with black."""
+    task_header("format", "Format code with black", ctx)
     ensure_venv(ctx)
-    print("Formatting code...")
     python_path = get_venv_python()
     ctx.run(f"{python_path} -m black src/ tests/")
 
@@ -181,8 +210,8 @@ def format(ctx):
 @task
 def test(ctx, coverage=True, verbose=False):
     """Run tests."""
+    task_header("test", "Run tests with coverage", ctx, coverage=coverage, verbose=verbose)
     ensure_venv(ctx)
-    print("Running tests...")
     
     python_path = get_venv_python()
     cmd = f"{python_path} -m pytest"
@@ -343,51 +372,68 @@ def shell(ctx):
 @task
 def scripts(ctx):
     """List available scripts."""
+    task_header("scripts", "List available scripts", ctx)
     scripts_dir = Path("scripts")
-    print("=== Available Scripts ===")
     
-    if scripts_dir.exists():
-        available_scripts = [f.stem for f in scripts_dir.glob("*.py") if f.name != "run.py"]
-        if available_scripts:
-            for script in sorted(available_scripts):
-                script_path = scripts_dir / f"{script}.py"
-                # Try to get the docstring
-                try:
-                    with open(script_path, 'r') as f:
-                        lines = f.readlines()
-                        docstring = ""
-                        in_docstring = False
-                        for line in lines[1:10]:  # Check first few lines after shebang
-                            if '"""' in line and not in_docstring:
-                                in_docstring = True
-                                docstring = line.split('"""')[1].strip()
-                                if '"""' in docstring:  # Single line docstring
-                                    docstring = docstring.split('"""')[0].strip()
-                                    break
-                            elif in_docstring and '"""' in line:
-                                break
-                            elif in_docstring:
-                                docstring += " " + line.strip()
-                        
-                        if docstring:
-                            print(f"  {script:<15} - {docstring}")
-                        else:
-                            print(f"  {script}")
-                except:
-                    print(f"  {script}")
-            
-            print(f"\nUsage: invoke run --script <script_name> --args '<arguments>'")
-            # Check where run.py is located
-            if Path("scripts/run.py").exists():
-                print(f"   or: python scripts/run.py <script_name> [arguments...]")
-            else:
-                common_run = Path(__file__).parent / "scripts" / "run.py"
-                if common_run.exists():
-                    print(f"   or: python {common_run} <script_name> [arguments...]")
+    if not scripts_dir.exists():
+        print("No scripts directory found")
+        return
+    
+    available_scripts = [f.stem for f in scripts_dir.glob("*.py") if f.name != "run.py"]
+    if not available_scripts:
+        print("No scripts found")
+        return
+    
+    print("Available Scripts:")
+    for script in sorted(available_scripts):
+        script_path = scripts_dir / f"{script}.py"
+        
+        # Get a brief description from the file
+        description = _get_script_description(script_path)
+        
+        if description:
+            print(f"  {script:<15} {description}")
         else:
-            print("  No scripts found")
-    else:
-        print("  No scripts directory found")
+            print(f"  {script}")
+    
+    print(f"\nUsage:")
+    print(f"  inv r -n <script> -a '<args>'")
+    print(f"  inv run --script <script> --args '<args>'")
+
+
+def _get_script_description(script_path):
+    """Extract a brief description from a script file."""
+    try:
+        with open(script_path, 'r') as f:
+            content = f.read()
+        
+        # Look for common patterns for brief descriptions
+        import re
+        
+        # Pattern 1: Look for "Brief:" or "Description:" lines in comments
+        brief_match = re.search(r'#.*(?:Brief|Description):\s*(.+)', content, re.IGNORECASE)
+        if brief_match:
+            return brief_match.group(1).strip()
+        
+        # Pattern 2: Look for argparse description
+        desc_match = re.search(r'description\s*=\s*[\'"]([^\'"\n]+)[\'"]', content)
+        if desc_match:
+            desc = desc_match.group(1).strip()
+            # Keep it short - just the first sentence
+            first_sentence = desc.split('.')[0]
+            if len(first_sentence) < 80:
+                return first_sentence
+        
+        # Pattern 3: Get first line of module docstring if it's short
+        docstring_match = re.search(r'"""([^"]+)"""', content)
+        if docstring_match:
+            first_line = docstring_match.group(1).strip().split('\n')[0]
+            if len(first_line) < 80 and not first_line.startswith('#!'):
+                return first_line
+        
+        return None
+    except:
+        return None
 
 
 @task
@@ -590,10 +636,9 @@ def gtest(ctx, safe_only=False):
 @task
 def temp_status(ctx):
     """Show status of temporary directories and files."""
+    task_header("temp-status", "Show status of temporary directories and files", ctx)
     try:
         from common.temp import TempManager
-        print("Temporary Directory Status")
-        print("=" * 40)
         
         # List all persistent temporary items
         temp_items = TempManager.list_persistent_temps()
@@ -676,11 +721,10 @@ def temp_clean(ctx, max_age_hours=None, dry_run=False):
         max_age_hours: Only clean items older than this many hours
         dry_run: Show what would be cleaned without actually cleaning
     """
+    task_header("temp-clean", "Clean temporary directories and files", ctx,
+                max_age_hours=max_age_hours, dry_run=dry_run)
     try:
         from common.temp import TempManager
-        
-        if dry_run:
-            print("DRY RUN: Showing what would be cleaned...")
         
         # List current items
         temp_items = TempManager.list_persistent_temps()

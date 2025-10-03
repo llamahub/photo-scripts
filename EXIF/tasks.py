@@ -10,7 +10,7 @@ sys.path.insert(0, str(common_dir))
 
 # Import all common functionality from common_tasks module
 from common_tasks import (
-    get_venv_python, get_venv_executable, ensure_venv,
+    get_venv_python, get_venv_executable, ensure_venv, task_header,
     setup, clean, lint, format, test, build, run, install,
     deps, shell, scripts, status
 )# This file inherits all tasks from COMMON/common_tasks.py
@@ -19,6 +19,7 @@ from common_tasks import (
 @task
 def sample_demo(ctx, count=5):
     """Run a demo of the sample script with test data."""
+    task_header("sample-demo", "Run a demo of the sample script with test data", ctx, count=count)
     import os
     
     ensure_venv(ctx)
