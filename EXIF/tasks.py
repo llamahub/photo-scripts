@@ -10,12 +10,10 @@ sys.path.insert(0, str(common_dir))
 
 # Import all common functionality from common_tasks module
 from common_tasks import (
-    get_venv_python, get_venv_executable, ensure_venv, get_temp_dir,
-    setup, clean, lint, format, test, build, run, install, 
+    get_venv_python, get_venv_executable, ensure_venv,
+    setup, clean, lint, format, test, build, run, install,
     deps, shell, scripts, status
-)
-
-# This file inherits all tasks from COMMON/common_tasks.py
+)# This file inherits all tasks from COMMON/common_tasks.py
 # You can add project-specific tasks below or override common tasks
 
 @task
@@ -25,8 +23,19 @@ def sample_demo(ctx, count=5):
     
     ensure_venv(ctx)
     
-    # Create temporary test structure using common framework
-    temp_path = get_temp_dir("demo")
+    # Create temporary test structure using centralized temp management
+    try:
+        from common.temp import get_debug_temp_dir
+        temp_path = get_debug_temp_dir("demo")
+    except ImportError:
+        # Fallback if temp system not available
+        from pathlib import Path
+        import time
+        temp_base = Path(".tmp")
+        temp_base.mkdir(exist_ok=True)
+        timestamp = int(time.time())
+        temp_path = temp_base / f"demo_{timestamp}"
+        temp_path.mkdir(exist_ok=True)
     
     try:
         source_dir = temp_path / "demo_photos"

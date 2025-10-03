@@ -39,34 +39,6 @@ def ensure_venv(ctx):
         sys.exit(1)
 
 
-def get_temp_dir(name_prefix="temp"):
-    """Create a temporary directory that persists and is visible for debugging.
-    
-    DEPRECATED: Use common.temp.TempManager.create_persistent_dir() instead.
-    
-    Args:
-        name_prefix: Prefix for the temporary directory name
-        
-    Returns:
-        Path object for the created temporary directory
-    """
-    # Use the new centralized temp management
-    try:
-        from common.temp import TempManager
-        return TempManager.create_persistent_dir(name_prefix)
-    except ImportError:
-        # Fallback to old implementation
-        temp_base = Path(".tmp")
-        temp_base.mkdir(exist_ok=True)
-        
-        # Create a unique directory name with timestamp
-        timestamp = int(time.time())
-        temp_dir = temp_base / f"{name_prefix}_{timestamp}"
-        temp_dir.mkdir(exist_ok=True)
-        
-        return temp_dir
-
-
 @task
 def setup(ctx):
     """Setup the project environment."""
