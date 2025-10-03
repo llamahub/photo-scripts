@@ -2,15 +2,38 @@
 
 VENV_DIR="${PWD}/.venv"
 
-if [ -d "$VENV_DIR" ]; then
+# Check for --recreate flag
+if [[ "$1" == "--recreate" ]]; then
+    echo "Recreating virtual environment..."
+    if [ -d "$VENV_DIR" ]; then
+        echo "Removing existing virtual environment..."
+        # Try to remove with force, and if that fails, try sudo
+        rm -rf "$VENV_DIR" 2>/dev/null || {
+            echo "Normal removal failed, trying with force..."
+            sudo rm -rf "$VENV_DIR" 2>/dev/null || {
+                echo "Forceful removal failed, manually cleaning..."
+                find "$VENV_DIR" -type f -delete 2>/dev/null || true
+                find "$VENV_DIR" -type d -delete 2>/dev/null || true
+                rm -rf "$VENV_DIR" 2>/dev/null || true
+            }
+        }
+    fi
+    echo "Creating new virtual environment..."
+    python3 setenv.py --recreate
+    if [ -f "$VENV_DIR/bin/activate" ]; then
+        source "$VENV_DIR/bin/activate"
+    else
+        echo "Error: Virtual environment creation failed!"
+        exit 1
+    fi
+elif [ -d "$VENV_DIR" ]; then
     echo "Activating existing virtual environment..."
-
     echo "After activation, you can use:"
     echo "  invoke test    # Run tests"
     echo "  invoke build   # Build project"
     echo "  invoke run     # Run project"
-
- # Start a new shell with the venv activated
+    echo ""
+    echo "To recreate the environment, use: source setenv --recreate"
     source "$VENV_DIR/bin/activate"
 else
     echo "Virtual environment not found. Creating with setenv.py..."

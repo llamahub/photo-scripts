@@ -5,6 +5,7 @@ import os
 import sys
 import subprocess
 import venv
+import shutil
 from pathlib import Path
 
 
@@ -16,8 +17,24 @@ def check_python_version():
     print(f"Using Python {sys.version}")
 
 
-def create_venv(venv_path: Path) -> None:
+def create_venv(venv_path: Path, recreate: bool = False) -> None:
     """Create virtual environment."""
+    if recreate and venv_path.exists():
+        print(f"Removing existing virtual environment at {venv_path}")
+        try:
+            shutil.rmtree(venv_path)
+        except PermissionError:
+            print("Permission error removing venv, trying alternative cleanup...")
+            import stat
+            def handle_remove_readonly(func, path, exc):
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            shutil.rmtree(venv_path, onerror=handle_remove_readonly)
+        except Exception as e:
+            print(f"Error removing venv: {e}")
+            print("Please manually remove the .venv directory and try again")
+            sys.exit(1)
+    
     print(f"Creating virtual environment at {venv_path}")
     venv.create(venv_path, with_pip=True)
 
@@ -44,6 +61,20 @@ def install_dependencies(venv_path: Path, project_path: Path) -> None:
     pyproject_file = project_path / "pyproject.toml"
     requirements_file = project_path / "requirements.txt"  # Legacy support
     
+    # Check if pip exists
+    if not pip_path.exists():
+        print(f"Error: pip not found at {pip_path}")
+        print("Virtual environment may not have been created properly")
+        sys.exit(1)
+    
+    # Upgrade pip first
+    print("Upgrading pip...")
+    try:
+        subprocess.run([str(pip_path), "install", "--upgrade", "pip"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to upgrade pip: {e}")
+        print("Continuing with existing pip version...")
+    
     # Prefer pyproject.toml if it exists
     if pyproject_file.exists():
         print(f"Installing dependencies from {pyproject_file}")
@@ -64,7 +95,7 @@ def install_dependencies(venv_path: Path, project_path: Path) -> None:
         subprocess.run([str(pip_path), "install"] + minimal_deps, check=True)
 
 
-def setup_environment(project_path: Path = None) -> None:
+def setup_environment(project_path: Path = None, recreate: bool = False) -> None:
     """Setup virtual environment for project."""
     check_python_version()
     
@@ -72,11 +103,10 @@ def setup_environment(project_path: Path = None) -> None:
         project_path = Path.cwd()
     
     venv_path = project_path / ".venv"
-    requirements_file = project_path / "requirements.txt"
     
-    # Create virtual environment if it doesn't exist
-    if not venv_path.exists():
-        create_venv(venv_path)
+    # Create virtual environment if it doesn't exist or if recreating
+    if not venv_path.exists() or recreate:
+        create_venv(venv_path, recreate)
     else:
         print(f"Virtual environment already exists at {venv_path}")
     
@@ -110,6 +140,9 @@ def setup_environment(project_path: Path = None) -> None:
     print("  invoke test    # Run tests")
     print("  invoke build   # Build project")
     print("  invoke run     # Run project")
+    print("\nTo recreate the environment, use:")
+    print("  python3 setenv.py --recreate")
+    print("  source setenv --recreate")
 
 
 def create_activation_helpers(venv_path: Path, project_path: Path):
@@ -133,4 +166,5 @@ def create_activation_helpers(venv_path: Path, project_path: Path):
 
 
 if __name__ == "__main__":
-    setup_environment()
+    recreate_flag = "--recreate" in sys.argv
+    setup_environment(recreate=recreate_flag)

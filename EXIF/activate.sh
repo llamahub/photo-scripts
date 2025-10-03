@@ -1,2 +1,2 @@
 #!/bin/bash
-source "/workspaces/photo-scripts/EXIF/.venv/bin/activate"
+source "/workspaces/photo-scripts/exif/.venv/bin/activate"
