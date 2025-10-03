@@ -4,196 +4,58 @@ A Python monorepo framework for photo processing tools with shared infrastructur
 
 ## Quick Start
 
-### Setup Environment
 ```bash
-# Navigate to any project
-cd EXIF/
-./setenv --recreate  # Creates virtual environment
-source activate.sh   # Activates environment
+cd EXIF/                    # Navigate to any project
+./setenv --recreate         # Create virtual environment
+source activate.sh          # Activate environment
+inv r -n sample -a '--help' # Run scripts with shortcut syntax
 ```
 
-### Run Scripts
-```bash
-# Three ways to run scripts:
-inv r -n sample -a '--help'                           # Shortcut
-invoke run --script sample --args '--help'            # Traditional  
-python ../COMMON/scripts/run.py sample --help         # Direct
-```
+## Documentation Structure
 
-### Common Tasks
-```bash
-inv setup    # Setup project environment
-inv test     # Run tests with coverage
-inv lint     # Run code linting
-inv clean    # Clean build artifacts
-inv scripts  # List available scripts
-```
+- **[.vscode/ai-assistant-prompt.md](.vscode/ai-assistant-prompt.md)** - **Primary AI assistant guide** with patterns and templates
+- **[DEVELOPMENT_HISTORY.md](DEVELOPMENT_HISTORY.md)** - Project context and architectural decisions
+- **[COMMON/ARCHITECTURE.md](COMMON/ARCHITECTURE.md)** - Technical framework details
+- **[EXIF/scripts/SAMPLE_EVOLUTION.md](EXIF/scripts/SAMPLE_EVOLUTION.md)** - Script development case study
+- **[photo-scripts.code-workspace](photo-scripts.code-workspace)** - VS Code workspace configuration
 
-## Architecture
+## Core Framework
 
 ### Shared Infrastructure (COMMON/)
-- **Logging**: `ScriptLogging.get_script_logger()` for consistent logging
-- **Configuration**: Base configuration classes with environment support
-- **Tasks**: Shared invoke tasks for all projects
-- **Scripts**: Universal script runner
+- **ScriptLogging**: `ScriptLogging.get_script_logger()` for consistent logging
+- **Task System**: Shared invoke tasks with project extensions
+- **Script Runner**: Universal script execution (`inv r -n script -a 'args'`)
+- **Configuration**: Environment-based config management
 
-### Project Structure
-```
-project/
-├── src/project/          # Project modules
-├── scripts/              # Standalone scripts  
-├── tests/                # Unit tests
-├── tasks.py              # Project tasks (extends COMMON)
-├── pyproject.toml        # Project dependencies
-├── setenv                # Environment setup
-└── activate.sh           # Environment activation
-```
-
-## Script Development
-
-### Standard Pattern
+### Standard Script Pattern
 ```python
-#!/usr/bin/env python3
-"""Script description."""
-
-import sys
-from pathlib import Path
-from datetime import datetime
-
-# Import COMMON logging
-common_src_path = Path(__file__).parent.parent.parent / 'COMMON' / 'src'
-sys.path.insert(0, str(common_src_path))
-
-try:
-    from common.logging import ScriptLogging
-except ImportError:
-    import logging
-    ScriptLogging = None
-
-def main():
-    # Setup logging
-    if ScriptLogging:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        logger = ScriptLogging.get_script_logger(
-            name=f"script_{timestamp}",
-            debug=args.debug
-        )
-    else:
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger("script")
-    
-    # Use logger
-    logger.info("Starting script")
-    # ... script logic ...
-    logger.info("Script completed")
-
-if __name__ == '__main__':
-    main()
+# Standard import and setup pattern
+from common.logging import ScriptLogging
+logger = ScriptLogging.get_script_logger(name="script_name", debug=True)
 ```
-
-## Key Features
-
-### Logging
-- **Console**: Clean format for terminal output
-- **File**: Detailed format with function/line info
-- **Auto-rotation**: Timestamped log files
-- **Debug support**: Configurable verbosity
-
-### Testing
-- Comprehensive pytest-based testing
-- Coverage reporting with pytest-cov
-- Shared test configuration
-- Mock-friendly patterns
-
-### Task Management
-- Shared tasks across all projects
-- Project-specific extensions
-- Shortcut syntax for common operations
-- Cross-platform compatibility
 
 ## Current Projects
 
-### EXIF/
-Image metadata processing tools
-- `sample.py`: Random image sampling with sidecar support
-- `image_data.py`: EXIF data extraction and processing
+- **EXIF/**: Image metadata processing (`sample.py`, `image_data.py`)
+- **COMMON/**: Shared infrastructure and framework
 
-### COMMON/
-Shared infrastructure and utilities
-- Logging framework
-- Configuration management
-- Task definitions
-- Script runner
+## Quick Reference
 
-## Adding New Projects
+```bash
+# Environment Management
+./setenv --recreate    # Create fresh environment
+source activate.sh     # Activate current environment
 
-1. **Create project directory**:
-   ```bash
-   mkdir NEW_PROJECT/
-   cd NEW_PROJECT/
-   ```
+# Script Execution (three ways)
+inv r -n sample -a '--help'                        # Shortcut
+invoke run --script sample --args '--help'         # Traditional
+python ../COMMON/scripts/run.py sample --help      # Direct
 
-2. **Copy structure from existing project**:
-   ```bash
-   cp -r ../EXIF/{src,tests,tasks.py,pyproject.toml,setenv,activate.sh} .
-   ```
+# Common Tasks
+inv setup    # Project setup
+inv test     # Run tests with coverage
+inv lint     # Code quality checks
+inv scripts  # List available scripts
+```
 
-3. **Update project-specific files**:
-   - Modify `pyproject.toml` name and dependencies
-   - Update `tasks.py` for project-specific tasks
-   - Create initial modules in `src/`
-
-4. **Setup environment**:
-   ```bash
-   ./setenv --recreate
-   source activate.sh
-   inv setup
-   ```
-
-Scripts automatically inherit:
-- COMMON logging framework
-- Universal script runner
-- Shared task system
-- Testing infrastructure
-
-## Best Practices
-
-### Code Organization
-- Keep shared code in COMMON/
-- Project-specific code in project directories
-- Scripts are standalone but use COMMON infrastructure
-- Tests mirror source structure
-
-### Error Handling
-- Use logger.error() for errors
-- Provide fallbacks for missing dependencies
-- Clear error messages with actionable guidance
-- Graceful degradation patterns
-
-### Documentation
-- Comprehensive docstrings
-- Usage examples in help text
-- README files for context
-- Type hints for clarity
-
-## Development History
-
-See `DEVELOPMENT_HISTORY.md` for detailed architectural decisions, migration notes, and context for future development.
-
-## Dependencies
-
-### Common (all projects)
-- Python 3.8+
-- invoke (task runner)
-- pydantic (configuration)
-- python-dotenv (environment management)
-
-### Development
-- pytest + pytest-cov (testing)
-- black (formatting)
-- flake8 (linting)
-- mypy (type checking)
-
-## License
-
-MIT License - see individual project files for details.
+For detailed information, see the linked documentation files above.

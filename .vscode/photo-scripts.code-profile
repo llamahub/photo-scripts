@@ -1,0 +1,89 @@
+{
+  "name": "Photo Scripts Monorepo",
+  "settings": {
+    "python.defaultInterpreterPath": "./venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": ["tests"],
+    "python.linting.enabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": ["--line-length=88"],
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/htmlcov": true,
+      "**/.coverage": true,
+      "**/dist": true,
+      "**/build": true,
+      "**/*.egg-info": true
+    },
+    "search.exclude": {
+      "**/venv": true,
+      "**/.venv": true
+    }
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-python.flake8",
+    "ms-python.black-formatter",
+    "ms-vscode.test-adapter-converter",
+    "littlefoxteam.vscode-python-test-adapter"
+  ],
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Setup Environment",
+        "type": "shell",
+        "command": "./setenv --recreate && source activate.sh && inv setup",
+        "group": "build",
+        "presentation": {
+          "echo": true,
+          "reveal": "always",
+          "focus": false,
+          "panel": "shared"
+        }
+      },
+      {
+        "label": "Run Tests",
+        "type": "shell",
+        "command": "inv test",
+        "group": "test",
+        "presentation": {
+          "echo": true,
+          "reveal": "always",
+          "focus": false,
+          "panel": "shared"
+        }
+      },
+      {
+        "label": "Run Script",
+        "type": "shell",
+        "command": "inv r -n ${input:scriptName} -a '${input:scriptArgs}'",
+        "group": "build",
+        "presentation": {
+          "echo": true,
+          "reveal": "always",
+          "focus": false,
+          "panel": "shared"
+        }
+      }
+    ],
+    "inputs": [
+      {
+        "id": "scriptName",
+        "description": "Script name to run",
+        "default": "sample",
+        "type": "promptString"
+      },
+      {
+        "id": "scriptArgs",
+        "description": "Script arguments",
+        "default": "--help",
+        "type": "promptString"
+      }
+    ]
+  }
+}
