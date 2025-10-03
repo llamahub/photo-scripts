@@ -131,15 +131,12 @@ def setup_environment(project_path: Path = None, recreate: bool = False) -> None
     
     if os.name == "nt":  # Windows
         print(f"To activate: {venv_path}\\Scripts\\activate.bat")
-        print("Or use: .\\activate.bat")
+        print("Or use: .\\.generated\\activate.bat")
     else:  # Unix-like
         print(f"To activate: source {venv_path}/bin/activate")
+        print("Or use: source ./.generated/activate.sh")
         print("Or use: source ./setenv")
     
-    print("\nAfter activation, you can use:")
-    print("  invoke test    # Run tests")
-    print("  invoke build   # Build project")
-    print("  invoke run     # Run project")
     print("\nTo recreate the environment, use:")
     print("  python3 setenv.py --recreate")
     print("  source setenv --recreate")
@@ -148,14 +145,18 @@ def setup_environment(project_path: Path = None, recreate: bool = False) -> None
 def create_activation_helpers(venv_path: Path, project_path: Path):
     """Create helper scripts for easy activation."""
     
+    # Create .generated directory if it doesn't exist
+    generated_dir = project_path / ".generated"
+    generated_dir.mkdir(exist_ok=True)
+    
     if os.name == "nt":  # Windows
-        activate_script = project_path / "activate.bat"
+        activate_script = generated_dir / "activate.bat"
         with open(activate_script, "w") as f:
             f.write(f'@echo off\n')
             f.write(f'call "{venv_path}\\Scripts\\activate.bat"\n')
         print(f"Created activation helper: {activate_script}")
     else:  # Unix-like
-        activate_script = project_path / "activate.sh"
+        activate_script = generated_dir / "activate.sh"
         with open(activate_script, "w") as f:
             f.write(f'#!/bin/bash\n')
             f.write(f'source "{venv_path}/bin/activate"\n')

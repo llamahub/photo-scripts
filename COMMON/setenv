@@ -1,6 +1,8 @@
 #!/bin/bash
 
 VENV_DIR="${PWD}/.venv"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Check for --recreate flag
 if [[ "$1" == "--recreate" ]]; then
@@ -19,7 +21,7 @@ if [[ "$1" == "--recreate" ]]; then
         }
     fi
     echo "Creating new virtual environment..."
-    python3 setenv.py --recreate
+    python3 "${SCRIPT_DIR}/setenv.py" --recreate
     if [ -f "$VENV_DIR/bin/activate" ]; then
         source "$VENV_DIR/bin/activate"
     else
@@ -32,11 +34,12 @@ elif [ -d "$VENV_DIR" ]; then
     echo "  invoke test    # Run tests"
     echo "  invoke build   # Build project"
     echo "  invoke run     # Run project"
+    echo "  invoke -l      # List task options"
     echo ""
     echo "To recreate the environment, use: source setenv --recreate"
     source "$VENV_DIR/bin/activate"
 else
     echo "Virtual environment not found. Creating with setenv.py..."
-    python3 setenv.py
+    python3 "${SCRIPT_DIR}/setenv.py"
     source "$VENV_DIR/bin/activate"
 fi
