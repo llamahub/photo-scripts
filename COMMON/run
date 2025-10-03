@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# run - A wrapper script to execute invoke commands with script name and arguments
+# Usage: ./run <script_name> [arguments...]
+# Example: ./run sample --help
+
+# Check if at least one argument is provided
+if [ $# -eq 0 ]; then
+    echo "Available scripts:"
+    # Source the environment if activate.sh exists
+    if [ -f "activate.sh" ]; then
+        source activate.sh
+    fi
+    invoke scripts
+fi
+
+# Get the script name (first argument)
+SCRIPT_NAME="$1"
+shift  # Remove the first argument, leaving the rest as additional args
+
+# Combine all remaining arguments into a single string
+SCRIPT_ARGS="$*"
+
+# Source the environment if activate.sh exists
+if [ -f "activate.sh" ]; then
+    source activate.sh
+fi
+
+# Execute the invoke command
+if [ -n "$SCRIPT_ARGS" ]; then
+    invoke run --script "$SCRIPT_NAME" --args "$SCRIPT_ARGS"
+else
+    invoke run --script "$SCRIPT_NAME" --args ""
+fi
