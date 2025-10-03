@@ -42,21 +42,29 @@ def ensure_venv(ctx):
 def get_temp_dir(name_prefix="temp"):
     """Create a temporary directory that persists and is visible for debugging.
     
+    DEPRECATED: Use common.temp.TempManager.create_persistent_dir() instead.
+    
     Args:
         name_prefix: Prefix for the temporary directory name
         
     Returns:
         Path object for the created temporary directory
     """
-    temp_base = Path(".tmp")
-    temp_base.mkdir(exist_ok=True)
-    
-    # Create a unique directory name with timestamp
-    timestamp = int(time.time())
-    temp_dir = temp_base / f"{name_prefix}_{timestamp}"
-    temp_dir.mkdir(exist_ok=True)
-    
-    return temp_dir
+    # Use the new centralized temp management
+    try:
+        from common.temp import TempManager
+        return TempManager.create_persistent_dir(name_prefix)
+    except ImportError:
+        # Fallback to old implementation
+        temp_base = Path(".tmp")
+        temp_base.mkdir(exist_ok=True)
+        
+        # Create a unique directory name with timestamp
+        timestamp = int(time.time())
+        temp_dir = temp_base / f"{name_prefix}_{timestamp}"
+        temp_dir.mkdir(exist_ok=True)
+        
+        return temp_dir
 
 
 @task
@@ -67,8 +75,13 @@ def setup(ctx):
 
 
 @task
-def clean(ctx):
-    """Clean build artifacts and temporary directories."""
+def clean(ctx, temp_age_hours=None):
+    """Clean build artifacts and temporary directories.
+    
+    Args:
+        temp_age_hours: Only clean temporary files older than this many hours.
+                       If not specified, clean all temporary files.
+    """
     ensure_venv(ctx)
     print("Cleaning build artifacts and temporary directories...")
     
@@ -76,33 +89,61 @@ def clean(ctx):
     dirs_to_clean = [
         ".pytest_cache",
         "__pycache__",
-        "*.egg-info",
+        "*.egg-info", 
         "build",
         "dist",
         ".coverage",
-        ".mypy_cache",
-        ".tmp"
+        ".mypy_cache"
     ]
     
-    python_path = get_venv_python()
-    
-    # Clean temporary directories first (with informative output)
-    tmp_dir = Path(".tmp")
-    if tmp_dir.exists():
-        print(f"Removing temporary directory: {tmp_dir.absolute()}")
-        if os.name == "nt":  # Windows
-            ctx.run(f'rd /s /q "{tmp_dir}"', warn=True)
-        else:  # Unix-like
-            ctx.run(f"rm -rf '{tmp_dir}'", warn=True)
-        print(f"  ✓ Removed {tmp_dir}")
-    else:
-        print(f"No temporary directory found: {tmp_dir}")
+    # Use centralized temp management for cleaning
+    try:
+        from common.temp import TempManager
+        print("Using centralized temp management...")
+        
+        # List what will be cleaned
+        temp_items = TempManager.list_persistent_temps()
+        if temp_items:
+            print(f"Found {len(temp_items)} temporary items:")
+            for item in temp_items[:10]:  # Show first 10
+                print(f"  - {item}")
+            if len(temp_items) > 10:
+                print(f"  ... and {len(temp_items) - 10} more")
+        
+        # Clean temporary files
+        age_hours = int(temp_age_hours) if temp_age_hours else None
+        cleaned_count = TempManager.clean_persistent_temps(max_age_hours=age_hours)
+        
+        if cleaned_count > 0:
+            age_msg = f" (older than {age_hours}h)" if age_hours else ""
+            print(f"  ✓ Cleaned {cleaned_count} temporary items{age_msg}")
+        else:
+            print("  ℹ No temporary items to clean")
+            
+    except ImportError:
+        # Fallback to old method
+        print("Fallback: Using legacy temp cleanup...")
+        tmp_dir = Path(".tmp")
+        if tmp_dir.exists():
+            print(f"Removing temporary directory: {tmp_dir.absolute()}")
+            if os.name == "nt":  # Windows
+                ctx.run(f'rd /s /q "{tmp_dir}"', warn=True)
+            else:  # Unix-like
+                ctx.run(f"rm -rf '{tmp_dir}'", warn=True)
+            print(f"  ✓ Removed {tmp_dir}")
+        
+        # Also clean .temp directory if it exists
+        temp_dir = Path(".temp")
+        if temp_dir.exists():
+            print(f"Removing auto-cleanup temp directory: {temp_dir.absolute()}")
+            if os.name == "nt":  # Windows
+                ctx.run(f'rd /s /q "{temp_dir}"', warn=True)
+            else:  # Unix-like
+                ctx.run(f"rm -rf '{temp_dir}'", warn=True)
+            print(f"  ✓ Removed {temp_dir}")
     
     # Clean other build artifacts with explicit reporting
     for pattern in dirs_to_clean:
-        if pattern == ".tmp":
-            continue  # Already handled above
-        
         print(f"\nCleaning pattern: {pattern}")
         
         if os.name == "nt":  # Windows
@@ -572,4 +613,148 @@ def gtest(ctx, safe_only=False):
         return 1
     else:
         logger.info(f"✅ ALL GLOBAL TESTS PASSED: {total_passed} tests")
+
+
+@task
+def temp_status(ctx):
+    """Show status of temporary directories and files."""
+    try:
+        from common.temp import TempManager
+        print("Temporary Directory Status")
+        print("=" * 40)
+        
+        # List all persistent temporary items
+        temp_items = TempManager.list_persistent_temps()
+        
+        if not temp_items:
+            print("No persistent temporary items found.")
+            return
+        
+        # Group by category/type
+        categories = {}
+        for item in temp_items:
+            if item.is_dir():
+                # Try to determine category from path
+                parts = item.parts
+                if len(parts) >= 2 and parts[-2] != ".tmp":
+                    category = parts[-2]  # Category directory
+                else:
+                    category = "uncategorized"
+            else:
+                category = "files"
+            
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(item)
+        
+        # Display by category
+        total_size = 0
+        for category, items in sorted(categories.items()):
+            print(f"\n{category.upper()}:")
+            for item in items:
+                size = 0
+                if item.is_file():
+                    size = item.stat().st_size
+                elif item.is_dir():
+                    # Calculate directory size
+                    for child in item.rglob('*'):
+                        if child.is_file():
+                            try:
+                                size += child.stat().st_size
+                            except (OSError, PermissionError):
+                                pass
+                
+                total_size += size
+                size_mb = size / (1024 * 1024) if size > 0 else 0
+                
+                # Show age
+                import time
+                age_hours = (time.time() - item.stat().st_mtime) / 3600
+                
+                print(f"  {item.name}: {size_mb:.1f} MB, {age_hours:.1f}h old")
+        
+        print(f"\nTotal: {len(temp_items)} items, {total_size / (1024 * 1024):.1f} MB")
+        print("\nUse 'inv temp-clean' to clean up temporary files.")
+        print("Use 'inv temp-clean --max-age-hours 24' to clean files older than 24 hours.")
+        
+    except ImportError:
+        print("Centralized temp management not available.")
+        print("Checking for legacy temporary directories...")
+        
+        # Check legacy paths
+        legacy_paths = [Path(".tmp"), Path(".temp")]
+        found_any = False
+        
+        for path in legacy_paths:
+            if path.exists():
+                print(f"\nFound legacy temp directory: {path}")
+                items = list(path.rglob('*'))
+                print(f"  Contains {len(items)} items")
+                found_any = True
+        
+        if not found_any:
+            print("No temporary directories found.")
+
+
+@task
+def temp_clean(ctx, max_age_hours=None, dry_run=False):
+    """Clean temporary directories and files.
+    
+    Args:
+        max_age_hours: Only clean items older than this many hours
+        dry_run: Show what would be cleaned without actually cleaning
+    """
+    try:
+        from common.temp import TempManager
+        
+        if dry_run:
+            print("DRY RUN: Showing what would be cleaned...")
+        
+        # List current items
+        temp_items = TempManager.list_persistent_temps()
+        
+        if not temp_items:
+            print("No temporary items to clean.")
+            return
+        
+        print(f"Found {len(temp_items)} temporary items")
+        
+        if max_age_hours:
+            print(f"Cleaning items older than {max_age_hours} hours...")
+        else:
+            print("Cleaning all temporary items...")
+        
+        if dry_run:
+            # Just list what would be cleaned
+            import time
+            current_time = time.time()
+            would_clean = []
+            
+            for item in temp_items:
+                if max_age_hours:
+                    age_hours = (current_time - item.stat().st_mtime) / 3600
+                    if age_hours < float(max_age_hours):
+                        continue
+                would_clean.append(item)
+            
+            if would_clean:
+                print(f"\nWould clean {len(would_clean)} items:")
+                for item in would_clean:
+                    print(f"  - {item}")
+            else:
+                print("\nNo items match the cleaning criteria.")
+        else:
+            # Actually clean
+            age_hours = int(max_age_hours) if max_age_hours else None
+            cleaned_count = TempManager.clean_persistent_temps(max_age_hours=age_hours)
+            
+            if cleaned_count > 0:
+                age_msg = f" (older than {age_hours}h)" if age_hours else ""
+                print(f"✓ Cleaned {cleaned_count} items{age_msg}")
+            else:
+                print("No items were cleaned.")
+        
+    except ImportError:
+        print("Centralized temp management not available.")
+        print("Use 'inv clean' for legacy temporary directory cleanup.")
         return 0
