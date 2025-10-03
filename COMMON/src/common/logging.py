@@ -5,7 +5,16 @@ import logging.config
 from pathlib import Path
 from typing import Optional, Any, Dict
 from logging import Logger
-from src.common.config import BaseConfig
+
+try:
+    from src.common.config import BaseConfig
+except ImportError:
+    # Try alternative import path
+    try:
+        from common.config import BaseConfig
+    except ImportError:
+        # If neither works, we'll define a minimal BaseConfig later
+        BaseConfig = None
 
 
 class LoggingConfig:
@@ -92,3 +101,64 @@ def get_logger(name: str) -> Logger:
         Logger instance
     """
     return logging.getLogger(name)
+
+
+class ScriptLogging:
+    """Simplified logging setup for standalone scripts."""
+    
+    @staticmethod
+    def get_script_logger(
+        name: str, 
+        log_dir: Optional[Path] = None, 
+        debug: bool = False
+    ) -> Logger:
+        """Get a logger configured for standalone scripts.
+        
+        This provides a simple way to get a logger with both console and file
+        output without needing to create a full BaseConfig instance.
+        
+        Args:
+            name: Logger name (typically script name with timestamp)
+            log_dir: Directory for log files (defaults to '.log' in current dir)
+            debug: Enable debug level logging
+            
+        Returns:
+            Configured logger instance
+        """
+        if log_dir is None:
+            log_dir = Path('.log')
+        
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / f"{name}.log"
+        
+        # Create logger
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.DEBUG if debug else logging.INFO)
+        
+        # Clear any existing handlers to avoid duplicates
+        logger.handlers.clear()
+        
+        # Create formatters matching COMMON patterns
+        console_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s:%(lineno)d - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+        
+        # File handler
+        file_handler = logging.FileHandler(log_file, mode='a')
+        file_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+        
+        logger.info(f"Script logging initialized for {name} (debug: {debug})")
+        return logger

@@ -16,6 +16,17 @@ from datetime import datetime
 from collections import defaultdict
 from typing import List, Set, Dict
 
+# Import COMMON logging
+common_src_path = Path(__file__).parent.parent.parent / 'COMMON' / 'src'
+sys.path.insert(0, str(common_src_path))
+
+try:
+    from common.logging import ScriptLogging
+except ImportError:
+    # Fallback if COMMON module is not available
+    import logging
+    ScriptLogging = None
+
 
 class ImageSampler:
     """Handles sampling and copying of image files with their sidecars."""
@@ -38,22 +49,42 @@ class ImageSampler:
         self.clean_target = clean_target
         self.debug = debug
         
-        # Setup logging
+        # Setup logging using COMMON ScriptLogging
         self.log_dir = Path('.log')
-        self.log_dir.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.log_file = self.log_dir / f'sample_log_{timestamp}.log'
+        
+        if ScriptLogging:
+            self.logger = ScriptLogging.get_script_logger(
+                name=f"sample_{timestamp}",
+                log_dir=self.log_dir,
+                debug=debug
+            )
+        else:
+            # Fallback to basic logging if COMMON is not available
+            self.logger = self._setup_logger_fallback(
+                name=f"sample_{timestamp}",
+                debug=debug
+            )
         
         # Track files per folder
         self.folder_counts: Dict[str, int] = defaultdict(int)
-        
-    def log(self, message: str, to_console: bool = True):
-        """Log message to file and optionally to console."""
-        with open(self.log_file, 'a', encoding='utf-8') as f:
-            f.write(f"{message}\n")
-        if to_console or self.debug:
-            print(message)
     
+    def _setup_logger_fallback(self, name: str, debug: bool = False):
+        """Fallback logger setup if COMMON ScriptLogging is not available."""
+        import logging
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.DEBUG if debug else logging.INFO)
+        
+        # Simple console handler
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        
+        logger.info(f"Fallback logging initialized for {name}")
+        return logger
+
     def is_image_file(self, file_path: Path) -> bool:
         """Check if file is a supported image format."""
         return file_path.suffix.lower() in self.IMAGE_EXTENSIONS
@@ -80,7 +111,7 @@ class ImageSampler:
                     if self.is_image_file(file_path):
                         images.append(file_path)
         except PermissionError as e:
-            self.log(f"Permission denied accessing {directory}: {e}")
+            self.logger.warning(f"Permission denied accessing {directory}: {e}")
         
         return images
     
@@ -94,7 +125,7 @@ class ImageSampler:
                 if 0 < depth <= max_depth:
                     subfolders.append(root_path)
         except PermissionError as e:
-            self.log(f"Permission denied accessing {directory}: {e}")
+            self.logger.warning(f"Permission denied accessing {directory}: {e}")
         
         return subfolders
     
@@ -190,7 +221,7 @@ class ImageSampler:
             # Copy the main file
             shutil.copy2(source_file, target_file)
             message = f"Copied '{source_file}' to '{target_file.parent}/'"
-            self.log(message, to_console=self.debug)
+            self.logger.debug(message)
             
             # Copy sidecars
             sidecars = self.find_sidecars(source_file)
@@ -198,11 +229,11 @@ class ImageSampler:
                 target_sidecar = target_file.parent / sidecar.name
                 shutil.copy2(sidecar, target_sidecar)
                 sidecar_msg = f"Copied sidecar '{sidecar}' to '{target_file.parent}/'"
-                self.log(sidecar_msg, to_console=self.debug)
+                self.logger.debug(sidecar_msg)
                 
         except Exception as e:
             error_msg = f"Error copying {source_file}: {e}"
-            self.log(error_msg)
+            self.logger.error(error_msg)
     
     def run(self):
         """Execute the image sampling process."""
@@ -225,7 +256,7 @@ class ImageSampler:
             header.append("DEBUG mode enabled")
         
         for line in header:
-            self.log(line)
+            self.logger.info(line)
         
         # Validate source directory
         if not self.source.exists():
@@ -236,7 +267,7 @@ class ImageSampler:
         # Clean target if requested
         if self.clean_target:
             msg = f"Cleaning target folder: {self.target}"
-            self.log(msg)
+            self.logger.info(msg)
             if self.target.exists():
                 shutil.rmtree(self.target)
         
@@ -247,14 +278,14 @@ class ImageSampler:
         selected_files = self.select_files()
         
         if not selected_files:
-            self.log("No image files found to copy")
+            self.logger.info("No image files found to copy")
             return
         
         for file_path in selected_files:
             self.copy_file_with_metadata(file_path)
         
         summary = f"Copied {len(selected_files)} files to {self.target}"
-        self.log(summary)
+        self.logger.info(summary)
 
 
 def main():
