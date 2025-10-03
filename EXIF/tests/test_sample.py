@@ -86,7 +86,8 @@ class TestImageSampler:
         assert sampler.target == target.resolve()
         assert sampler.max_files == 5
         assert sampler.debug is True
-        assert sampler.log_dir.exists()
+        # Check that .log directory exists (created by ScriptLogging)
+        assert Path(".log").exists()
 
     def test_is_image_file(self, temp_dirs):
         """Test image file detection."""
@@ -215,7 +216,8 @@ class TestImageSampler:
                 sampler.logger.info(test_message)
 
                 # Check that log files exist in the .log directory
-                log_files = list(sampler.log_dir.glob("sample_*.log"))
+                log_dir = Path(".log")
+                log_files = list(log_dir.glob("sample_*.log"))
                 assert len(log_files) > 0
 
                 # Check that the message was logged

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Example script showing how to use COMMON ScriptLogging.
+Example script showing how to use COMMON ScriptLogging with auto-detection.
 """
 
 import sys
 from pathlib import Path
-from datetime import datetime
 
 # Import COMMON logging
 common_src_path = Path(__file__).parent.parent.parent / 'COMMON' / 'src'
@@ -22,13 +21,9 @@ except ImportError:
 def main():
     """Main function demonstrating ScriptLogging usage."""
     
-    # Setup logging - just one line!
+    # Setup logging - enhanced version with auto-detection!
     if ScriptLogging:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        logger = ScriptLogging.get_script_logger(
-            name=f"example_{timestamp}",
-            debug=True  # Enable debug logging
-        )
+        logger = ScriptLogging.get_script_logger(debug=True)  # Auto-detects script name and uses .log dir
     else:
         # Fallback
         logging.basicConfig(level=logging.INFO)

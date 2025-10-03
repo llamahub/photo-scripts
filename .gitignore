@@ -213,3 +213,6 @@ build/
 dist/
 .generated/
 *.generated.*
+EXIF/tests/test_images/
+.tmp/
+.temp/

@@ -34,8 +34,7 @@
       "**/.coverage": true,
       "**/dist": true,
       "**/build": true,
-      "**/*.egg-info": true,
-      "**/.log": true
+      "**/*.egg-info": true
     },
     "search.exclude": {
       "**/venv": true,

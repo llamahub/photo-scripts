@@ -68,7 +68,6 @@ Eliminates duplication by providing common tasks that all projects inherit.
 - `lint`: Code quality checks with flake8
 - `build`: Build project distributions
 - `run`: Universal script runner
-- `r`: Shortcut for script execution
 - `scripts`: List available scripts
 
 #### Extension Pattern

@@ -18,7 +18,7 @@ class BaseConfig(BaseSettings):
     # Logging settings
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(
-        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        default="%(asctime)s - %(levelname)s - %(message)s",
         description="Log message format",
     )
     log_file: Optional[str] = Field(default=None, description="Log file path")

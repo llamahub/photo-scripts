@@ -47,14 +47,11 @@ class LoggingConfig:
             "disable_existing_loggers": False,
             "formatters": {
                 "default": {
-                    "format": config.log_format,
+                    "format": config.log_format,  # Use format from config
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
-                "detailed": {
-                    "format": (
-                        "%(asctime)s - %(name)s - %(levelname)s - %(module)s - "
-                        "%(funcName)s:%(lineno)d - %(message)s"
-                    ),
+                "file": {
+                    "format": config.log_format,  # Use format from config
                     "datefmt": "%Y-%m-%d %H:%M:%S",
                 },
             },
@@ -77,7 +74,7 @@ class LoggingConfig:
             logging_config["handlers"]["file"] = {
                 "class": "logging.FileHandler",
                 "level": config.log_level,
-                "formatter": "detailed",
+                "formatter": "file",
                 "filename": str(log_file),
                 "mode": "a",
             }
@@ -85,6 +82,15 @@ class LoggingConfig:
 
         logging.config.dictConfig(logging_config)
         logger = logging.getLogger(project_name)
+
+        # Add header with log file info if file logging is enabled
+        if log_file:
+            logger.info("=" * 80)
+            logger.info(f"LOG FILE: {log_file}")
+            logger.info(f"PROJECT: {project_name}")
+            logger.info(f"LOG LEVEL: {config.log_level}")
+            logger.info("=" * 80)
+
         logger.info(
             f"Logging initialized for {project_name} (level: {config.log_level})"
         )
@@ -105,60 +111,110 @@ def get_logger(name: str) -> Logger:
 
 class ScriptLogging:
     """Simplified logging setup for standalone scripts."""
-    
+
     @staticmethod
     def get_script_logger(
-        name: str, 
-        log_dir: Optional[Path] = None, 
-        debug: bool = False
+        name: Optional[str] = None,
+        log_dir: Optional[Path] = None,
+        debug: bool = False,
+        config: Optional[BaseConfig] = None,
     ) -> Logger:
         """Get a logger configured for standalone scripts.
-        
+
         This provides a simple way to get a logger with both console and file
         output without needing to create a full BaseConfig instance.
-        
+
         Args:
-            name: Logger name (typically script name with timestamp)
+            name: Logger name (auto-generated from calling script if None)
             log_dir: Directory for log files (defaults to '.log' in current dir)
             debug: Enable debug level logging
-            
+            config: Optional BaseConfig instance (creates default if None)
+
         Returns:
             Configured logger instance
         """
+        # Auto-generate name from calling script if not provided
+        if name is None:
+            import inspect
+            import os
+            from datetime import datetime
+
+            # Get the calling frame (script that called this function)
+            frame = inspect.currentframe()
+            try:
+                # Go up the call stack to find the calling script
+                caller_frame = frame.f_back
+                while caller_frame:
+                    filename = caller_frame.f_code.co_filename
+                    if filename != __file__ and not filename.endswith(
+                        "common_tasks.py"
+                    ):
+                        # Found the calling script
+                        script_name = Path(filename).stem
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        name = f"{script_name}_{timestamp}"
+                        break
+                    caller_frame = caller_frame.f_back
+
+                # Fallback if we couldn't determine the script name
+                if name is None:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    name = f"script_{timestamp}"
+
+            finally:
+                del frame  # Prevent reference cycles
+
+        # Default to project .log directory
         if log_dir is None:
-            log_dir = Path('.log')
-        
+            log_dir = Path(".log")
+
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"{name}.log"
-        
+
+        # Create config if not provided
+        if config is None:
+            if BaseConfig:
+                config = BaseConfig()
+            else:
+                # Fallback if BaseConfig is not available
+                class FallbackConfig:
+                    log_format = "%(asctime)s - %(levelname)s - %(message)s"
+
+                config = FallbackConfig()
+
         # Create logger
         logger = logging.getLogger(name)
         logger.setLevel(logging.DEBUG if debug else logging.INFO)
-        
+
         # Clear any existing handlers to avoid duplicates
         logger.handlers.clear()
-        
-        # Create formatters matching COMMON patterns
+
+        # Create formatters using config format
         console_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            config.log_format, datefmt="%Y-%m-%d %H:%M:%S"
         )
         file_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s:%(lineno)d - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            config.log_format, datefmt="%Y-%m-%d %H:%M:%S"
         )
-        
+
         # Console handler
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
-        
+
         # File handler
-        file_handler = logging.FileHandler(log_file, mode='a')
+        file_handler = logging.FileHandler(log_file, mode="a")
         file_handler.setLevel(logging.DEBUG if debug else logging.INFO)
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
-        
+
+        # Add header with log file info
+        logger.info("=" * 80)
+        logger.info(f"LOG FILE: {log_file}")
+        logger.info(f"SCRIPT: {name}")
+        logger.info(f"DEBUG MODE: {debug}")
+        logger.info("=" * 80)
+
         logger.info(f"Script logging initialized for {name} (debug: {debug})")
         return logger

@@ -49,16 +49,9 @@ class ImageSampler:
         self.clean_target = clean_target
         self.debug = debug
         
-        # Setup logging using COMMON ScriptLogging
-        self.log_dir = Path('.log')
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
+        # Setup logging using COMMON ScriptLogging (auto-detects script name and uses .log dir)
         if ScriptLogging:
-            self.logger = ScriptLogging.get_script_logger(
-                name=f"sample_{timestamp}",
-                log_dir=self.log_dir,
-                debug=debug
-            )
+            self.logger = ScriptLogging.get_script_logger(debug=debug)
         else:
             # Fallback to basic logging if COMMON is not available
             self.logger = self._setup_logger_fallback(

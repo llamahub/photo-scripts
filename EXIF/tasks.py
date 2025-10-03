@@ -10,7 +10,7 @@ sys.path.insert(0, str(common_dir))
 
 # Import all common functionality from common_tasks module
 from common_tasks import (
-    get_venv_python, get_venv_executable, ensure_venv,
+    get_venv_python, get_venv_executable, ensure_venv, get_temp_dir,
     setup, clean, lint, format, test, build, run, install, 
     deps, shell, scripts, status
 )
@@ -21,14 +21,14 @@ from common_tasks import (
 @task
 def sample_demo(ctx, count=5):
     """Run a demo of the sample script with test data."""
-    import tempfile
     import os
     
     ensure_venv(ctx)
     
-    # Create temporary test structure
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
+    # Create temporary test structure using common framework
+    temp_path = get_temp_dir("demo")
+    
+    try:
         source_dir = temp_path / "demo_photos"
         target_dir = temp_path / "sampled_photos"
         
@@ -51,14 +51,14 @@ def sample_demo(ctx, count=5):
             img.touch()
             
         print(f"Created demo structure with {len(test_images)} test images")
+        print(f"Temp directory: {temp_path}")
         print(f"Source: {source_dir}")
         print(f"Target: {target_dir}")
         print(f"Running sample script with {count} files...")
         
-        # Run the sample script
-        python_path = get_venv_python()
-        cmd = f"{python_path} scripts/run.py sample --source {source_dir} --target {target_dir} --files {count} --debug"
-        ctx.run(cmd, pty=True)
+        # Run the sample script using the common run task
+        args = f"--source {source_dir} --target {target_dir} --files {count} --debug"
+        run(ctx, script="sample", args=args)
         
         # Show results
         print(f"\nResults in {target_dir}:")
@@ -69,6 +69,14 @@ def sample_demo(ctx, count=5):
                     print(f"  {rel_path}")
         else:
             print("  No files copied")
+            
+    except Exception as e:
+        print(f"Error during demo: {e}")
+        print(f"Temporary files available for inspection in: {temp_path}")
+        raise
+    finally:
+        print(f"Demo completed. Temporary files in: {temp_path}")
+        print("Note: Temporary directory will persist for debugging")
 
 # Example of how to override a common task:
 # @task

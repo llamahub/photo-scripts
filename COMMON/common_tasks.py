@@ -2,8 +2,15 @@
 
 import os
 import sys
+import time
 from pathlib import Path
 from invoke import task, Context
+
+# Import logging for gtest task
+try:
+    from common.logging import ScriptLogging
+except ImportError:
+    ScriptLogging = None
 
 
 def get_venv_python():
@@ -32,6 +39,26 @@ def ensure_venv(ctx):
         sys.exit(1)
 
 
+def get_temp_dir(name_prefix="temp"):
+    """Create a temporary directory that persists and is visible for debugging.
+    
+    Args:
+        name_prefix: Prefix for the temporary directory name
+        
+    Returns:
+        Path object for the created temporary directory
+    """
+    temp_base = Path(".tmp")
+    temp_base.mkdir(exist_ok=True)
+    
+    # Create a unique directory name with timestamp
+    timestamp = int(time.time())
+    temp_dir = temp_base / f"{name_prefix}_{timestamp}"
+    temp_dir.mkdir(exist_ok=True)
+    
+    return temp_dir
+
+
 @task
 def setup(ctx):
     """Setup the project environment."""
@@ -41,9 +68,9 @@ def setup(ctx):
 
 @task
 def clean(ctx):
-    """Clean build artifacts."""
+    """Clean build artifacts and temporary directories."""
     ensure_venv(ctx)
-    print("Cleaning build artifacts...")
+    print("Cleaning build artifacts and temporary directories...")
     
     # Remove common build directories
     dirs_to_clean = [
@@ -53,16 +80,59 @@ def clean(ctx):
         "build",
         "dist",
         ".coverage",
-        ".mypy_cache"
+        ".mypy_cache",
+        ".tmp"
     ]
     
     python_path = get_venv_python()
-    for pattern in dirs_to_clean:
+    
+    # Clean temporary directories first (with informative output)
+    tmp_dir = Path(".tmp")
+    if tmp_dir.exists():
+        print(f"Removing temporary directory: {tmp_dir.absolute()}")
         if os.name == "nt":  # Windows
+            ctx.run(f'rd /s /q "{tmp_dir}"', warn=True)
+        else:  # Unix-like
+            ctx.run(f"rm -rf '{tmp_dir}'", warn=True)
+        print(f"  ✓ Removed {tmp_dir}")
+    else:
+        print(f"No temporary directory found: {tmp_dir}")
+    
+    # Clean other build artifacts with explicit reporting
+    for pattern in dirs_to_clean:
+        if pattern == ".tmp":
+            continue  # Already handled above
+        
+        print(f"\nCleaning pattern: {pattern}")
+        
+        if os.name == "nt":  # Windows
+            # Find and report directories before removing
+            result = ctx.run(f'for /d /r . %d in ({pattern}) do @echo Found: %d', warn=True, hide=True)
+            if result and result.stdout.strip():
+                print(result.stdout.strip())
             ctx.run(f'for /d /r . %d in ({pattern}) do @if exist "%d" rd /s /q "%d"', warn=True)
             ctx.run(f'del /s /q {pattern} 2>nul', warn=True)
         else:  # Unix-like
+            # Find and report what will be removed
+            result = ctx.run(f"find . -name '{pattern}' 2>/dev/null", warn=True, hide=True)
+            if result and result.stdout.strip():
+                for line in result.stdout.strip().split('\n'):
+                    if line.strip():
+                        print(f"  Found: {line}")
+            # Now remove them
             ctx.run(f"find . -name '{pattern}' -exec rm -rf {{}} + 2>/dev/null || true")
+            
+        # Verify removal
+        if os.name != "nt":
+            verify_result = ctx.run(f"find . -name '{pattern}' 2>/dev/null", warn=True, hide=True)
+            if verify_result and not verify_result.stdout.strip():
+                print(f"  ✓ Cleaned all {pattern} entries")
+            else:
+                remaining = verify_result.stdout.strip().split('\n') if verify_result.stdout.strip() else []
+                if remaining:
+                    print(f"  ⚠ Some {pattern} entries may remain: {len(remaining)} found")
+        
+    print("\n✓ Cleanup completed!")
 
 
 @task
@@ -326,3 +396,180 @@ def status(ctx):
         ctx.run(f"{pip_path} list", pty=True)
     else:
         print("Run 'python setenv.py' or 'invoke setup' to create virtual environment.")
+
+
+@task
+def gtest(ctx, safe_only=False):
+    """Run global tests across all projects - comprehensive testing framework.
+    
+    This task runs tests across all projects in the workspace:
+    1. Runs unit tests in each project with a 'tests' folder
+    2. Runs safe invoke tasks in each project  
+    3. Runs scripts with --help to validate they work
+    
+    Args:
+        safe_only: If True, only run non-destructive tasks (default: False)
+    """
+    import os
+    from pathlib import Path
+    
+    # Setup logging
+    logger = ScriptLogging.get_script_logger(debug=True)
+    
+    # Find all projects (directories with tasks.py or pyproject.toml)
+    workspace_root = Path.cwd()
+    if workspace_root.name != "photo-scripts":
+        # Try to find workspace root
+        while workspace_root.name != "photo-scripts" and workspace_root != workspace_root.parent:
+            workspace_root = workspace_root.parent
+        if workspace_root.name != "photo-scripts":
+            workspace_root = Path("/workspaces/photo-scripts")
+    
+    projects = []
+    for item in workspace_root.iterdir():
+        if item.is_dir() and not item.name.startswith('.'):
+            if (item / "tasks.py").exists() or (item / "pyproject.toml").exists():
+                projects.append(item)
+    
+    logger.info("=" * 80)
+    logger.info(f" GLOBAL TEST RUNNER - {'SAFE MODE' if safe_only else 'FULL MODE'}")
+    logger.info("=" * 80)
+    logger.info(f"Workspace root: {workspace_root}")
+    logger.info(f"Found projects: {[p.name for p in projects]}")
+    
+    # Define task categories
+    safe_tasks = ["test", "lint", "status", "scripts", "format"]
+    destructive_tasks = ["setup", "install", "build", "deps"]
+    
+    # Always run clean first if available, then other tasks
+    clean_task = ["clean"]
+    tasks_to_run = safe_tasks
+    if not safe_only:
+        tasks_to_run.extend(destructive_tasks)
+        logger.warning("Running in FULL mode - includes potentially destructive tasks!")
+        logger.warning("Tasks that may modify system: clean, " + ", ".join(destructive_tasks))
+    
+    total_passed = 0
+    total_failed = 0
+    results = []
+    
+    for project in projects:
+        logger.info("=" * 60)
+        logger.info(f"TESTING PROJECT: {project.name}")
+        logger.info("=" * 60)
+        
+        os.chdir(project)
+        project_passed = 0
+        project_failed = 0
+        
+        # 1. Run unit tests if tests directory exists
+        if (project / "tests").exists():
+            logger.info(f"🧪 Running unit tests in {project.name}")
+            try:
+                result = ctx.run("inv test", hide=True, warn=True)
+                if result.return_code == 0:
+                    logger.info(f"✅ Unit tests PASSED in {project.name}")
+                    project_passed += 1
+                else:
+                    logger.error(f"❌ Unit tests FAILED in {project.name}")
+                    project_failed += 1
+                results.append(f"{project.name}/tests: {'PASS' if result.return_code == 0 else 'FAIL'}")
+            except Exception as e:
+                logger.error(f"❌ Unit tests ERROR in {project.name}: {e}")
+                project_failed += 1
+                results.append(f"{project.name}/tests: ERROR")
+        
+        # 2. Run invoke tasks (clean first, then others)
+        logger.info(f"⚙️  Running invoke tasks in {project.name}")
+        
+        # Get list of available tasks once
+        try:
+            task_check = ctx.run("inv --list", hide=True, warn=True)
+            available_tasks = task_check.stdout
+        except:
+            available_tasks = ""
+        
+        # Run clean task first if available
+        if "clean" in available_tasks:
+            logger.info(f"   Running task: clean (cleanup first)")
+            try:
+                result = ctx.run("inv clean", hide=True, warn=True)
+                if result.return_code == 0:
+                    logger.info(f"   ✅ Task clean PASSED")
+                    project_passed += 1
+                else:
+                    logger.error(f"   ❌ Task clean FAILED")
+                    project_failed += 1
+                results.append(f"{project.name}/clean: {'PASS' if result.return_code == 0 else 'FAIL'}")
+            except Exception as e:
+                logger.error(f"   ❌ Task clean ERROR: {e}")
+                project_failed += 1
+                results.append(f"{project.name}/clean: ERROR")
+        
+        # Run other tasks
+        for task_name in tasks_to_run:
+            try:
+                if task_name in available_tasks:
+                    logger.info(f"   Running task: {task_name}")
+                    result = ctx.run(f"inv {task_name}", hide=True, warn=True)
+                    if result.return_code == 0:
+                        logger.info(f"   ✅ Task {task_name} PASSED")
+                        project_passed += 1
+                    else:
+                        logger.error(f"   ❌ Task {task_name} FAILED")
+                        project_failed += 1
+                    results.append(f"{project.name}/{task_name}: {'PASS' if result.return_code == 0 else 'FAIL'}")
+                else:
+                    logger.info(f"   ⏭️  Task {task_name} not available")
+            except Exception as e:
+                logger.error(f"   ❌ Task {task_name} ERROR: {e}")
+                project_failed += 1
+                results.append(f"{project.name}/{task_name}: ERROR")
+        
+        # 3. Test scripts with --help
+        scripts_dir = project / "scripts"
+        if scripts_dir.exists():
+            logger.info(f"📜 Testing scripts in {project.name}")
+            script_files = [f for f in scripts_dir.glob("*.py") if f.name != "run.py"]
+            
+            for script_file in script_files:
+                script_name = script_file.stem
+                try:
+                    logger.info(f"   Testing script: {script_name}")
+                    # Test with --help to ensure script loads and parses args correctly
+                    result = ctx.run(f"inv run --script {script_name} --args '--help'", hide=True, warn=True)
+                    if result.return_code == 0:
+                        logger.info(f"   ✅ Script {script_name} PASSED")
+                        project_passed += 1
+                    else:
+                        logger.error(f"   ❌ Script {script_name} FAILED")
+                        project_failed += 1
+                    results.append(f"{project.name}/{script_name}: {'PASS' if result.return_code == 0 else 'FAIL'}")
+                except Exception as e:
+                    logger.error(f"   ❌ Script {script_name} ERROR: {e}")
+                    project_failed += 1
+                    results.append(f"{project.name}/{script_name}: ERROR")
+        
+        total_passed += project_passed
+        total_failed += project_failed
+        
+        logger.info(f"Project {project.name} summary: {project_passed} passed, {project_failed} failed")
+    
+    # Final summary
+    os.chdir(workspace_root)
+    logger.info("=" * 80)
+    logger.info(" GLOBAL TEST SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total: {total_passed} passed, {total_failed} failed")
+    logger.info("")
+    logger.info("Detailed Results:")
+    for result in results:
+        status = "✅" if "PASS" in result else "❌"
+        logger.info(f"  {status} {result}")
+    
+    if total_failed > 0:
+        logger.error(f"❌ GLOBAL TESTS FAILED: {total_failed} failures")
+        return 1
+    else:
+        logger.info(f"✅ ALL GLOBAL TESTS PASSED: {total_passed} tests")
+        return 0
