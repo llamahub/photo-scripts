@@ -269,8 +269,11 @@ def pytest_temp_dirs(
         yield temp_dirs
 
     finally:
-        # Clean up the test directory after use
-        try:
-            shutil.rmtree(test_base, ignore_errors=True)
-        except OSError:
-            pass  # Don't fail tests due to cleanup issues
+        # Clean up the test directory after use (unless requested to keep)
+        if os.environ.get('PYTEST_KEEP_TEMPS') != '1':
+            try:
+                shutil.rmtree(test_base, ignore_errors=True)
+            except OSError:
+                pass  # Don't fail tests due to cleanup issues
+        else:
+            print(f"🔍 Keeping test temp directory for debugging: {test_base}")

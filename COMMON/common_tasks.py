@@ -208,7 +208,7 @@ def format(ctx):
 
 
 @task
-def test(ctx, coverage=True, verbose=False, test_path=""):
+def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, sample_count=None):
     """Run tests.
     
     Args:
@@ -216,23 +216,36 @@ def test(ctx, coverage=True, verbose=False, test_path=""):
         verbose: Run with verbose output
         test_path: Specific test file, class, or method to run
                   (e.g. 'tests/test_file.py::TestClass::test_method')
+        keep_temps: Keep temporary files after test completion for debugging
+        sample_count: Number of sample images to generate in test_generate_sample_images (default: 10)
     
     Examples:
         inv test                                    # Run all tests with coverage
         inv test --test-path="tests/test_file.py"  # Run specific test file
+        inv test -t "tests/test_file.py" --keep-temps  # Keep temp files for inspection
+        inv test -t "tests/test_generate_images.py::TestImageGenerator::test_generate_sample_images" --sample-count=25
         inv test -t "tests/test_file.py::TestClass" --no-coverage  # Run test class without coverage
     """
     # Adjust task description based on whether running specific tests
     if test_path:
         task_header("test", f"Run specific test: {test_path}", ctx, 
-                   coverage=coverage, verbose=verbose, test_path=test_path)
+                   coverage=coverage, verbose=verbose, test_path=test_path, keep_temps=keep_temps, sample_count=sample_count)
         # Disable coverage by default for specific tests (can be overridden)
         coverage = coverage if 'coverage' in ctx.config.run.env else False
     else:
         task_header("test", "Run tests with coverage", ctx, 
-                   coverage=coverage, verbose=verbose)
+                   coverage=coverage, verbose=verbose, keep_temps=keep_temps, sample_count=sample_count)
     
     ensure_venv(ctx)
+    
+    # Set environment variables for test behavior
+    env = {}
+    if keep_temps:
+        env['PYTEST_KEEP_TEMPS'] = '1'
+        print("🔍 Keeping temporary files for debugging (use 'inv temp-clean' to clean up later)")
+    if sample_count is not None:
+        env['TEST_SAMPLE_COUNT'] = str(sample_count)
+        print(f"📊 Using custom sample count: {sample_count}")
     
     python_path = get_venv_python()
     cmd = f"{python_path} -m pytest"
@@ -253,7 +266,7 @@ def test(ctx, coverage=True, verbose=False, test_path=""):
     if test_path:
         cmd += " -s"
     
-    ctx.run(cmd, pty=True)
+    ctx.run(cmd, pty=True, env=env)
 
 
 @task

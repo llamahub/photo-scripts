@@ -175,8 +175,14 @@ class TestImageGenerator:
         """Generate a sample of test images from CSV data."""
         test_images_dir, output_dir = temp_dirs
 
-        # Generate first 10 images as a sample
-        sample_data = csv_data[:10]
+        # Get sample count from environment variable or default to 10
+        import os
+        sample_count = int(os.environ.get('TEST_SAMPLE_COUNT', '10'))
+        
+        # Generate first N images as a sample
+        sample_data = csv_data[:sample_count]
+        
+        print(f"📊 Generating {len(sample_data)} sample images (out of {len(csv_data)} total)")
 
         generated_count = 0
         for row in sample_data:
