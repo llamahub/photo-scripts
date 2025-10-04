@@ -236,6 +236,9 @@ def pytest_temp_dirs(
 ) -> Generator[list[Path], None, None]:
     """Create multiple temporary directories for pytest tests.
 
+    Creates directories under the project's .tmp/test/ structure for better organization
+    and easier debugging of test artifacts.
+
     Args:
         num_dirs: Number of directories to create
         names: Optional list of directory names (default: ['source', 'target', ...])
@@ -252,14 +255,22 @@ def pytest_temp_dirs(
     if names is None:
         names = ["source", "target", "working", "output", "backup"][:num_dirs]
 
-    with tempfile.TemporaryDirectory() as base_temp:
-        base_path = Path(base_temp)
+    # Create a test-specific temporary base directory under .tmp/test/
+    test_base = TempManager.create_persistent_dir("pytest", "test")
+    
+    try:
         temp_dirs = []
-
         for i in range(num_dirs):
             name = names[i] if i < len(names) else f"temp_{i}"
-            temp_dir = base_path / name
-            temp_dir.mkdir()
+            temp_dir = test_base / name
+            temp_dir.mkdir(exist_ok=True)
             temp_dirs.append(temp_dir)
 
         yield temp_dirs
+        
+    finally:
+        # Clean up the test directory after use
+        try:
+            shutil.rmtree(test_base, ignore_errors=True)
+        except OSError:
+            pass  # Don't fail tests due to cleanup issues
