@@ -177,12 +177,15 @@ class TestImageGenerator:
 
         # Get sample count from environment variable or default to 10
         import os
-        sample_count = int(os.environ.get('TEST_SAMPLE_COUNT', '10'))
-        
+
+        sample_count = int(os.environ.get("TEST_SAMPLE_COUNT", "10"))
+
         # Generate first N images as a sample
         sample_data = csv_data[:sample_count]
-        
-        print(f"📊 Generating {len(sample_data)} sample images (out of {len(csv_data)} total)")
+
+        print(
+            f"📊 Generating {len(sample_data)} sample images (out of {len(csv_data)} total)"
+        )
 
         generated_count = 0
         for row in sample_data:
@@ -383,6 +386,139 @@ class TestImageGenerator:
         assert (
             successful >= len(format_checks) // 2
         ), "Too many format verification failures"
+
+    def test_organize_script_integration(self, csv_data, temp_dirs):
+        """Integration test: Generate test images and organize them using organize.py script."""
+        test_images_dir, organized_dir = temp_dirs
+
+        print(f"\n🔧 Integration Test: Generate + Organize")
+        print(f"📂 Source directory: {test_images_dir}")
+        print(f"📂 Target directory: {organized_dir}")
+
+        # Step 1: Generate all test images in the source directory
+        generated_count = 0
+        error_count = 0
+        source_files = []
+
+        print(f"\n📸 Step 1: Generating {len(csv_data)} test images...")
+
+        for i, row in enumerate(csv_data):
+            try:
+                # Create directory structure in source
+                root_path = row["Root Path"]
+                parent_folder = row["Parent Folder"]
+                filename = row["Filename"]
+                source_ext = row["Source Ext"]
+
+                full_dir = test_images_dir / root_path / parent_folder
+                full_dir.mkdir(parents=True, exist_ok=True)
+
+                # Create the image file
+                image_path = full_dir / f"{filename}.{source_ext}"
+
+                width = int(row["Image Width"]) if row["Image Width"] else 100
+                height = int(row["Image Height"]) if row["Image Height"] else 100
+                format_name = row["Actual Format"]
+
+                self._create_test_image(width, height, format_name, image_path)
+
+                # Set EXIF data if possible
+                self._set_exif_data(image_path, row)
+
+                # Verify file was created
+                assert image_path.exists(), f"Failed to create {image_path}"
+                assert (
+                    image_path.stat().st_size > 0
+                ), f"Created file is empty: {image_path}"
+
+                source_files.append(image_path)
+                generated_count += 1
+
+                if (generated_count % 10) == 0:
+                    print(f"   Generated {generated_count}/{len(csv_data)} images...")
+
+            except Exception as e:
+                error_count += 1
+                print(f"⚠️  Error generating image {i+1}: {e}")
+                if error_count > 10:  # Don't fail for too many individual errors
+                    break
+
+        print(f"✅ Generated {generated_count} test images, {error_count} errors")
+        assert (
+            generated_count >= len(csv_data) * 0.8
+        ), f"Too few images generated: {generated_count}/{len(csv_data)}"
+
+        # Step 2: Run the organize.py script
+        print(f"\n🗂️  Step 2: Running organize.py script...")
+
+        # Import and run the organize script
+        import sys
+        from pathlib import Path
+
+        # Add the scripts directory to path
+        scripts_dir = Path(__file__).parent.parent / "scripts"
+        sys.path.insert(0, str(scripts_dir))
+
+        try:
+            # Import the organize module
+            import organize
+
+            # Create organized directory
+            organized_dir.mkdir(exist_ok=True)
+
+            # Run the organize function with our test directories
+            print(f"   Source: {test_images_dir}")
+            print(f"   Target: {organized_dir}")
+
+            # Create PhotoOrganizer instance and run it
+            organizer = organize.PhotoOrganizer(
+                source=test_images_dir, target=organized_dir, dry_run=False, debug=True
+            )
+
+            organizer.run()
+
+            print(f"✅ Organize script completed")
+
+        except ImportError as e:
+            print(f"❌ Could not import organize module: {e}")
+            pytest.skip("organize.py script not available for testing")
+        except Exception as e:
+            print(f"❌ Error running organize script: {e}")
+            raise
+
+        # Step 3: Verify organization results
+        print(f"\n📋 Step 3: Verifying organization results...")
+
+        # Count files in organized directory
+        organized_files = list(organized_dir.rglob("*.*"))
+        print(f"   Found {len(organized_files)} organized files")
+
+        # Verify we have some organized files
+        assert len(organized_files) > 0, "No files were organized"
+
+        # Show some example organized files
+        print(f"📁 Sample organized structure:")
+        for i, org_file in enumerate(organized_files[:10]):  # Show first 10
+            rel_path = org_file.relative_to(organized_dir)
+            print(f"   {rel_path}")
+
+        if len(organized_files) > 10:
+            print(f"   ... and {len(organized_files) - 10} more files")
+
+        # Basic verification that organization happened
+        # (The exact organization logic depends on organize.py implementation)
+        organized_dirs = [d for d in organized_dir.rglob("*") if d.is_dir()]
+        print(f"   Created {len(organized_dirs)} organized directories")
+
+        # Should have created some directory structure
+        assert (
+            len(organized_dirs) >= 3
+        ), f"Expected multiple organized directories, got {len(organized_dirs)}"
+
+        print(f"🎉 Integration test completed successfully!")
+        print(f"   Generated: {generated_count} images")
+        print(f"   Organized: {len(organized_files)} files")
+        print(f"   Directories: {len(organized_dirs)} created")
 
 
 if __name__ == "__main__":
