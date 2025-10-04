@@ -458,17 +458,17 @@ class TestImageGenerator:
         # Step 2: Run the organize.py script
         print(f"\n🗂️  Step 2: Running organize.py script...")
 
-        # Import and run the organize script
+        # Import and run the PhotoOrganizer class
         import sys
         from pathlib import Path
 
-        # Add the scripts directory to path
-        scripts_dir = Path(__file__).parent.parent / "scripts"
-        sys.path.insert(0, str(scripts_dir))
+        # Add the project src directory to path
+        project_root = Path(__file__).parent.parent
+        sys.path.insert(0, str(project_root / 'src'))
 
         try:
-            # Import the organize module
-            import organize
+            # Import the PhotoOrganizer class from the exif module
+            from exif import PhotoOrganizer
 
             # Create organized directory
             organized_dir.mkdir(exist_ok=True)
@@ -478,7 +478,7 @@ class TestImageGenerator:
             print(f"   Target: {organized_dir}")
 
             # Create PhotoOrganizer instance and run it
-            organizer = organize.PhotoOrganizer(
+            organizer = PhotoOrganizer(
                 source=test_images_dir, target=organized_dir, dry_run=False, debug=True
             )
 
@@ -487,8 +487,8 @@ class TestImageGenerator:
             print(f"✅ Organize script completed")
 
         except ImportError as e:
-            print(f"❌ Could not import organize module: {e}")
-            pytest.skip("organize.py script not available for testing")
+            print(f"❌ Could not import PhotoOrganizer class: {e}")
+            pytest.skip("PhotoOrganizer class not available for testing")
         except Exception as e:
             print(f"❌ Error running organize script: {e}")
             raise
