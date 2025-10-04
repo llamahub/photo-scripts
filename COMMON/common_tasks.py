@@ -504,22 +504,30 @@ def status(ctx):
 
 
 @task
-def gtest(ctx, safe_only=False):
+def gtest(ctx, include_unsafe=False):
     """Run global tests across all projects - comprehensive testing framework.
     
     This task runs tests across all projects in the workspace:
     1. Runs unit tests in each project with a 'tests' folder
-    2. Runs safe invoke tasks in each project  
+    2. Runs safe invoke tasks in each project (test, lint, status, scripts, format)
     3. Runs scripts with --help to validate they work
     
+    By default, only runs safe tasks to avoid environment corruption issues.
+    
     Args:
-        safe_only: If True, only run non-destructive tasks (default: False)
+        include_unsafe: If True, also run potentially problematic tasks (setup, install, build, deps) (default: False)
     """
     import os
     from pathlib import Path
     
     # Setup logging
-    logger = ScriptLogging.get_script_logger(debug=True)
+    if ScriptLogging:
+        logger = ScriptLogging.get_script_logger(debug=True)
+    else:
+        # Fallback to basic logging if ScriptLogging not available
+        import logging
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logger = logging.getLogger('gtest')
     
     # Find all projects (directories with tasks.py or pyproject.toml)
     workspace_root = Path.cwd()
@@ -537,22 +545,25 @@ def gtest(ctx, safe_only=False):
                 projects.append(item)
     
     logger.info("=" * 80)
-    logger.info(f" GLOBAL TEST RUNNER - {'SAFE MODE' if safe_only else 'FULL MODE'}")
+    logger.info(f" GLOBAL TEST RUNNER - {'FULL MODE' if include_unsafe else 'SAFE MODE'}")
     logger.info("=" * 80)
     logger.info(f"Workspace root: {workspace_root}")
     logger.info(f"Found projects: {[p.name for p in projects]}")
     
     # Define task categories
     safe_tasks = ["test", "lint", "status", "scripts", "format"]
-    destructive_tasks = ["setup", "install", "build", "deps"]
+    unsafe_tasks = ["setup", "install", "build", "deps"]
     
     # Always run clean first if available, then other tasks
     clean_task = ["clean"]
     tasks_to_run = safe_tasks
-    if not safe_only:
-        tasks_to_run.extend(destructive_tasks)
-        logger.warning("Running in FULL mode - includes potentially destructive tasks!")
-        logger.warning("Tasks that may modify system: clean, " + ", ".join(destructive_tasks))
+    if include_unsafe:
+        tasks_to_run.extend(unsafe_tasks)
+        logger.warning("Running in FULL mode - includes potentially problematic tasks!")
+        logger.warning("Tasks that may cause environment issues: clean, " + ", ".join(unsafe_tasks))
+    else:
+        logger.info("Running in SAFE mode - skipping potentially problematic tasks")
+        logger.info("To include all tasks, use: inv gtest --include-unsafe")
     
     total_passed = 0
     total_failed = 0
@@ -563,102 +574,136 @@ def gtest(ctx, safe_only=False):
         logger.info(f"TESTING PROJECT: {project.name}")
         logger.info("=" * 60)
         
-        os.chdir(project)
-        project_passed = 0
-        project_failed = 0
-        
-        # 1. Run unit tests if tests directory exists
-        if (project / "tests").exists():
-            logger.info(f"🧪 Running unit tests in {project.name}")
-            try:
-                result = ctx.run("inv test", hide=True, warn=True)
-                if result.return_code == 0:
-                    logger.info(f"✅ Unit tests PASSED in {project.name}")
-                    project_passed += 1
-                else:
-                    logger.error(f"❌ Unit tests FAILED in {project.name}")
-                    project_failed += 1
-                results.append(f"{project.name}/tests: {'PASS' if result.return_code == 0 else 'FAIL'}")
-            except Exception as e:
-                logger.error(f"❌ Unit tests ERROR in {project.name}: {e}")
-                project_failed += 1
-                results.append(f"{project.name}/tests: ERROR")
-        
-        # 2. Run invoke tasks (clean first, then others)
-        logger.info(f"⚙️  Running invoke tasks in {project.name}")
-        
-        # Get list of available tasks once
+        # Change to project directory and ensure proper environment
+        original_cwd = os.getcwd()
         try:
-            task_check = ctx.run("inv --list", hide=True, warn=True)
-            available_tasks = task_check.stdout
-        except:
-            available_tasks = ""
-        
-        # Run clean task first if available
-        if "clean" in available_tasks:
-            logger.info(f"   Running task: clean (cleanup first)")
-            try:
-                result = ctx.run("inv clean", hide=True, warn=True)
-                if result.return_code == 0:
-                    logger.info(f"   ✅ Task clean PASSED")
-                    project_passed += 1
-                else:
-                    logger.error(f"   ❌ Task clean FAILED")
-                    project_failed += 1
-                results.append(f"{project.name}/clean: {'PASS' if result.return_code == 0 else 'FAIL'}")
-            except Exception as e:
-                logger.error(f"   ❌ Task clean ERROR: {e}")
-                project_failed += 1
-                results.append(f"{project.name}/clean: ERROR")
-        
-        # Run other tasks
-        for task_name in tasks_to_run:
-            try:
-                if task_name in available_tasks:
-                    logger.info(f"   Running task: {task_name}")
-                    result = ctx.run(f"inv {task_name}", hide=True, warn=True)
-                    if result.return_code == 0:
-                        logger.info(f"   ✅ Task {task_name} PASSED")
-                        project_passed += 1
-                    else:
-                        logger.error(f"   ❌ Task {task_name} FAILED")
-                        project_failed += 1
-                    results.append(f"{project.name}/{task_name}: {'PASS' if result.return_code == 0 else 'FAIL'}")
-                else:
-                    logger.info(f"   ⏭️  Task {task_name} not available")
-            except Exception as e:
-                logger.error(f"   ❌ Task {task_name} ERROR: {e}")
-                project_failed += 1
-                results.append(f"{project.name}/{task_name}: ERROR")
-        
-        # 3. Test scripts with --help
-        scripts_dir = project / "scripts"
-        if scripts_dir.exists():
-            logger.info(f"📜 Testing scripts in {project.name}")
-            script_files = [f for f in scripts_dir.glob("*.py") if f.name != "run.py"]
+            os.chdir(project)
             
-            for script_file in script_files:
-                script_name = script_file.stem
+            # For projects with virtual environments, activate them first
+            if (project / ".venv").exists():
+                logger.info(f"🔧 Activating virtual environment for {project.name}")
+            
+            project_passed = 0
+            project_failed = 0
+            
+                # 1. Run unit tests if tests directory exists
+            if (project / "tests").exists():
+                logger.info(f"🧪 Running unit tests in {project.name}")
                 try:
-                    logger.info(f"   Testing script: {script_name}")
-                    # Test with --help to ensure script loads and parses args correctly
-                    result = ctx.run(f"inv run --script {script_name} --args '--help'", hide=True, warn=True)
+                    # Use proper environment for projects with .venv
+                    if (project / ".venv").exists():
+                        # Use bash to ensure proper isolation and environment setup
+                        cmd = f"bash -c 'cd {project} && source activate.sh && inv test'"
+                    else:
+                        cmd = "inv test"
+                    
+                    result = ctx.run(cmd, hide=True, warn=True)
                     if result.return_code == 0:
-                        logger.info(f"   ✅ Script {script_name} PASSED")
+                        logger.info(f"✅ Unit tests PASSED in {project.name}")
                         project_passed += 1
                     else:
-                        logger.error(f"   ❌ Script {script_name} FAILED")
+                        logger.error(f"❌ Unit tests FAILED in {project.name}")
                         project_failed += 1
-                    results.append(f"{project.name}/{script_name}: {'PASS' if result.return_code == 0 else 'FAIL'}")
+                    results.append(f"{project.name}/tests: {'PASS' if result.return_code == 0 else 'FAIL'}")
                 except Exception as e:
-                    logger.error(f"   ❌ Script {script_name} ERROR: {e}")
+                    logger.error(f"❌ Unit tests ERROR in {project.name}: {e}")
                     project_failed += 1
-                    results.append(f"{project.name}/{script_name}: ERROR")
+                    results.append(f"{project.name}/tests: ERROR")
         
-        total_passed += project_passed
-        total_failed += project_failed
+            # 2. Run invoke tasks (clean first, then others)
+            logger.info(f"⚙️  Running invoke tasks in {project.name}")
+            
+            # Get list of available tasks once
+            try:
+                task_check = ctx.run("inv --list", hide=True, warn=True)
+                available_tasks = task_check.stdout
+            except:
+                available_tasks = ""
+            
+            # Run clean task first if available
+            if "clean" in available_tasks:
+                logger.info(f"   Running task: clean (cleanup first)")
+                try:
+                    # Use proper environment for projects with .venv
+                    if (project / ".venv").exists():
+                        # Use bash to ensure proper isolation and environment setup  
+                        cmd = f"bash -c 'cd {project} && source activate.sh && inv clean'"
+                    else:
+                        cmd = "inv clean"
+                    
+                    result = ctx.run(cmd, hide=True, warn=True)
+                    if result.return_code == 0:
+                        logger.info(f"   ✅ Task clean PASSED")
+                        project_passed += 1
+                    else:
+                        logger.error(f"   ❌ Task clean FAILED")
+                        project_failed += 1
+                    results.append(f"{project.name}/clean: {'PASS' if result.return_code == 0 else 'FAIL'}")
+                except Exception as e:
+                    logger.error(f"   ❌ Task clean ERROR: {e}")
+                    project_failed += 1
+                    results.append(f"{project.name}/clean: ERROR")
         
-        logger.info(f"Project {project.name} summary: {project_passed} passed, {project_failed} failed")
+            # Run other tasks
+            for task_name in tasks_to_run:
+                try:
+                    if task_name in available_tasks:
+                        logger.info(f"   Running task: {task_name}")
+                        
+                        # Build command with proper environment for projects with .venv
+                        if (project / ".venv").exists():
+                            # Use bash to ensure proper isolation and environment setup
+                            cmd = f"bash -c 'cd {project} && source activate.sh && inv {task_name}'"
+                        else:
+                            cmd = f"inv {task_name}"
+                        
+                        result = ctx.run(cmd, hide=True, warn=True)
+                        if result.return_code == 0:
+                            logger.info(f"   ✅ Task {task_name} PASSED")
+                            project_passed += 1
+                        else:
+                            logger.error(f"   ❌ Task {task_name} FAILED")
+                            project_failed += 1
+                        results.append(f"{project.name}/{task_name}: {'PASS' if result.return_code == 0 else 'FAIL'}")
+                    else:
+                        logger.info(f"   ⏭️  Task {task_name} not available")
+                except Exception as e:
+                    logger.error(f"   ❌ Task {task_name} ERROR: {e}")
+                    project_failed += 1
+                    results.append(f"{project.name}/{task_name}: ERROR")
+            
+            # 3. Test scripts with --help
+            scripts_dir = project / "scripts"
+            if scripts_dir.exists():
+                logger.info(f"📜 Testing scripts in {project.name}")
+                script_files = [f for f in scripts_dir.glob("*.py") if f.name != "run.py"]
+                
+                for script_file in script_files:
+                    script_name = script_file.stem
+                    try:
+                        logger.info(f"   Testing script: {script_name}")
+                        # Test with --help to ensure script loads and parses args correctly
+                        result = ctx.run(f"inv run --script {script_name} --args '--help'", hide=True, warn=True)
+                        if result.return_code == 0:
+                            logger.info(f"   ✅ Script {script_name} PASSED")
+                            project_passed += 1
+                        else:
+                            logger.error(f"   ❌ Script {script_name} FAILED")
+                            project_failed += 1
+                        results.append(f"{project.name}/{script_name}: {'PASS' if result.return_code == 0 else 'FAIL'}")
+                    except Exception as e:
+                        logger.error(f"   ❌ Script {script_name} ERROR: {e}")
+                        project_failed += 1
+                        results.append(f"{project.name}/{script_name}: ERROR")
+        
+            total_passed += project_passed
+            total_failed += project_failed
+            
+            logger.info(f"Project {project.name} summary: {project_passed} passed, {project_failed} failed")
+        
+        finally:
+            # Always return to original directory
+            os.chdir(original_cwd)
     
     # Final summary
     os.chdir(workspace_root)

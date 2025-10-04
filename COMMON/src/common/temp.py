@@ -270,7 +270,7 @@ def pytest_temp_dirs(
 
     finally:
         # Clean up the test directory after use (unless requested to keep)
-        if os.environ.get('PYTEST_KEEP_TEMPS') != '1':
+        if os.environ.get("PYTEST_KEEP_TEMPS") != "1":
             try:
                 shutil.rmtree(test_base, ignore_errors=True)
             except OSError:
