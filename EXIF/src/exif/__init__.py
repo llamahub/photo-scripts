@@ -1,11 +1,10 @@
 """
-EXIF module for photo processing and organization.
-
-This module provides classes and utilities for working with photo metadata
-and organizing photos based on EXIF data.
+EXIF module for photo organization and metadata processing.
 """
 
 from .image_data import ImageData
 from .photo_organizer import PhotoOrganizer
+from .image_generator import ImageGenerator
+from .image_selector import ImageSelector
 
-__all__ = ['ImageData', 'PhotoOrganizer']
+__all__ = ["ImageData", "PhotoOrganizer", "ImageGenerator", "ImageSelector"]

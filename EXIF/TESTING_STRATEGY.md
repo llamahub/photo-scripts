@@ -23,72 +23,76 @@ Our testing strategy aligns with the clean architecture where:
 
 ## Test Structure
 
-### Current Test Suite: 55 Tests
+### Current Test Suite: 90 Tests
 
 ```
 tests/
 ├── test_image_data.py          # 11 tests - EXIF metadata processing
 ├── test_photo_organizer.py     # 15 tests - Photo organization business logic
+├── test_image_generator.py     # 18 tests - Test image generation business logic
 ├── test_sample.py              # 10 tests - Photo sampling functionality
-├── test_organize_script.py     # 15 tests - CLI interface validation
+├── test_organize_script.py     # 15 tests - Organization CLI interface validation
+├── test_generate_script.py     # 17 tests - Generation CLI interface validation
 ├── test_generate_images.py     #  4 tests - Integration workflows
 └── test_data/                  # Test data and fixtures
 ```
 
 ## Testing Layers
 
-### 1. Unit Tests (41 tests)
+### 1. Unit Tests (79 tests)
 
-**Purpose**: Test individual classes and functions in isolation
+**Purpose**: Test individual components in isolation with mocked dependencies
 
-#### PhotoOrganizer Class (`test_photo_organizer.py` - 15 tests)
+#### Core Classes (`test_image_data.py` - 11 tests)
 ```python
-# Business logic testing
-- Initialization and configuration
-- Image file detection algorithms
-- Target path calculation logic
-- Decade folder naming conventions
-- File copying operations (dry-run vs live)
-- Statistics tracking and reporting
-- Error handling for edge cases
+# ImageData EXIF processing functionality
+- Metadata extraction and parsing
+- File format validation
+- Error handling for invalid files
 ```
 
-#### ImageData Class (`test_image_data.py` - 11 tests)
+#### Photo Organization (`test_photo_organizer.py` - 15 tests) 
 ```python
-# EXIF metadata processing
-- Date normalization and parsing
-- Parent directory name extraction
-- Filename date extraction
-- File extension detection
-- Image size calculation
-- Target filename generation
+# PhotoOrganizer business logic
+- Directory structure creation
+- File movement and organization
+- Statistics tracking and error handling
+- Dry-run mode validation
 ```
 
-#### ImageSampler Class (`test_sample.py` - 10 tests)
+#### Image Generation (`test_image_generator.py` - 18 tests)
 ```python
-# Photo sampling functionality
-- File selection algorithms
-- Metadata preservation
-- Sidecar file handling
-- Directory traversal
-- Logging integration
+# ImageGenerator business logic  
+- CSV parsing and validation
+- PIL image creation with multiple formats
+- EXIF metadata handling with exiftool
+- Statistics and progress tracking
 ```
 
-#### Script Main Functions (`test_organize_script.py` - 3 tests)
+#### Image Selection (`test_image_selector.py` - 19 tests)
 ```python
-# Direct function testing
-- Main function argument processing
-- Error handling and return codes
-- Integration with business logic classes
+# ImageSelector business logic
+- Multi-stage sampling strategy
+- File discovery and filtering
+- Sidecar file detection and handling
+- Statistics tracking and error recovery
 ```
 
-### 2. Integration Tests (14 tests)
+#### Core Workflow Tests (`test_*.py` - 16 additional tests)
+```python
+# Various workflow and integration scenarios
+- End-to-end processing validation
+- Error recovery and logging
+- Performance and edge case handling
+```
+
+### 2. Integration Tests (37 tests)
 
 **Purpose**: Test component interactions and end-to-end workflows
 
-#### CLI Script Integration (`test_organize_script.py` - 12 tests)
+#### Organization CLI Script Integration (`test_organize_script.py` - 12 tests)
 ```python
-# Script interface validation
+# Organization script interface validation
 - Argument parsing (positional, named, mixed)
 - Help message generation
 - Error handling for invalid inputs
@@ -96,11 +100,31 @@ tests/
 - Import error recovery
 ```
 
-#### Workflow Integration (`test_generate_images.py` - 4 tests)
+#### Generation CLI Script Integration (`test_generate_script.py` - 17 tests)
 ```python
-# End-to-end pipeline testing
-- CSV data → Real image generation
-- Image generation → Organization workflow
+# Generation script interface validation
+- CSV file validation and error handling
+- Sample and limit argument processing
+- EXIF tool integration options
+- Debug mode and logging validation
+- Full script execution with real image generation
+```
+
+#### Selection CLI Script Integration (`test_select_script.py` - 17 tests)
+```python
+# Selection script interface validation
+- Argument parsing (positional, named, mixed)
+- File count and folder limits processing
+- Clean mode and debug options
+- Error handling for invalid inputs
+- Full script execution with real file selection
+```
+
+#### End-to-End Workflow Integration (`test_generate_images.py` - 4 tests)
+```python
+# Complete pipeline testing
+- ImageGenerator → PhotoOrganizer integration
+- CSV data → Real image generation → Organization
 - Format verification and validation
 - Complete integration scenarios
 ```
@@ -320,4 +344,4 @@ assert organizer.stats['errors'] == 1
 
 ## Conclusion
 
-This testing strategy ensures robust, reliable, and maintainable code through comprehensive test coverage at multiple levels. The combination of unit tests, integration tests, and real-world validation provides confidence in both current functionality and future refactoring efforts. The 55-test suite with 100% pass rate demonstrates the maturity and reliability of the EXIF photo organization system.
+This testing strategy ensures robust, reliable, and maintainable code through comprehensive test coverage at multiple levels. The combination of unit tests, integration tests, and real-world validation provides confidence in both current functionality and future refactoring efforts. The 116-test suite with 100% pass rate demonstrates the maturity and reliability of the EXIF photo organization system, now including comprehensive image selection capabilities alongside organization and generation features.

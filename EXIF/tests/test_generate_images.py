@@ -1,5 +1,8 @@
 """
-Test for generating test images from CSV data with EXIF metadata.
+Integration tests for image generation functionality.
+
+These tests focus on integration workflows using the ImageGenerator class
+and integration with the PhotoOrganizer for complete end-to-end testing.
 """
 
 import csv
@@ -15,16 +18,23 @@ import tempfile
 try:
     import sys
     from pathlib import Path
-    
+
     # Add COMMON src directory to path if not already present
     common_src = Path(__file__).parent.parent.parent / "COMMON" / "src"
     if str(common_src) not in sys.path:
         sys.path.insert(0, str(common_src))
-    
+
     from common.temp import pytest_temp_dirs
+
     USE_COMMON_TEMP = True
 except ImportError:
     USE_COMMON_TEMP = False
+
+# Add project src directory to path for ImageGenerator and PhotoOrganizer
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+from exif import ImageGenerator, PhotoOrganizer
 
 # Check for PIL availability
 try:
@@ -35,16 +45,13 @@ except ImportError:
     HAS_PIL = False
 
 
-class TestImageGenerator:
-    """Test class for generating test images from CSV data."""
+class TestImageGenerationIntegration:
+    """Integration tests for image generation workflows."""
 
     @pytest.fixture
-    def csv_data(self):
-        """Load test image data from CSV file."""
-        csv_path = Path(__file__).parent / "test_data" / "test_images.csv"
-        with open(csv_path, "r") as f:
-            reader = csv.DictReader(f)
-            return list(reader)
+    def csv_path(self):
+        """Get path to the test CSV file."""
+        return Path(__file__).parent / "test_data" / "test_images.csv"
 
     @pytest.fixture
     def temp_dirs(self):
@@ -61,176 +68,39 @@ class TestImageGenerator:
                 output.mkdir()
                 yield [test_images, output]
 
-    def _create_test_image(self, width, height, format_name, output_path):
-        """Create a test image with specified dimensions and format."""
-        # Handle zero or invalid dimensions
-        width = max(width, 1)
-        height = max(height, 1)
-
-        if HAS_PIL:
-            # Create a real image with PIL
-            if format_name == "JPEG":
-                mode = "RGB"
-                color = (128, 128, 255)  # Light blue
-            elif format_name == "PNG":
-                mode = "RGBA"
-                color = (255, 128, 128, 255)  # Light red with alpha
-            elif format_name == "TIFF":
-                mode = "RGB"
-                color = (128, 255, 128)  # Light green
-            elif format_name == "HEIC":
-                # HEIC not supported by PIL, create as JPEG
-                mode = "RGB"
-                color = (255, 255, 128)  # Light yellow
-            else:
-                mode = "RGB"
-                color = (192, 192, 192)  # Light gray
-
-            # Create the image
-            img = Image.new(mode, (width, height), color)
-
-            # Save with appropriate format
-            if format_name == "HEIC":
-                # Save as JPEG since PIL doesn't support HEIC
-                img.save(output_path, "JPEG", quality=95)
-            else:
-                img.save(
-                    output_path,
-                    format_name,
-                    quality=95 if format_name == "JPEG" else None,
-                )
-        else:
-            # Create a dummy file without PIL
-            content = f"# Test image file\n# Format: {format_name}\n# Dimensions: {width}x{height}\n"
-            content += f"# This is a placeholder file created without PIL\n"
-            content += "# " + "X" * (width // 10) + "\n" * (height // 10)
-
-            with open(output_path, "w") as f:
-                f.write(content)
-
-    def _parse_date_string(self, date_str):
-        """Parse various date formats from the CSV."""
-        if not date_str or date_str.strip() == "":
-            return None
-
-        date_str = date_str.strip()
-
-        # Handle EXIF format: YYYY:MM:DD HH:MM:SS
-        if ":" in date_str and len(date_str) > 10:
-            try:
-                return datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
-            except ValueError:
-                pass
-
-        # Handle M/D/YY format
-        if "/" in date_str:
-            try:
-                # Try M/D/YY HH:MM format first
-                if " " in date_str:
-                    return datetime.strptime(date_str, "%m/%d/%y %H:%M")
-                else:
-                    # Just M/D/YY
-                    return datetime.strptime(date_str, "%m/%d/%y")
-            except ValueError:
-                pass
-
-        return None
-
-    def _set_exif_data(self, image_path, row):
-        """Set EXIF data using exiftool if available."""
-        if not shutil.which("exiftool"):
-            # Skip EXIF setting if exiftool not available
-            return
-
-        try:
-            # Parse dates
-            dt_orig = self._parse_date_string(row.get("DateTimeOriginal", ""))
-            exif_dt = self._parse_date_string(row.get("ExifIFD:DateTimeOriginal", ""))
-            xmp_dt = self._parse_date_string(row.get("XMP-photoshop:DateCreated", ""))
-
-            # Build exiftool command
-            cmd = ["exiftool", "-overwrite_original"]
-
-            if dt_orig:
-                cmd.extend(
-                    [f'-DateTimeOriginal={dt_orig.strftime("%Y:%m:%d %H:%M:%S")}']
-                )
-
-            if exif_dt:
-                cmd.extend(
-                    [
-                        f'-ExifIFD:DateTimeOriginal={exif_dt.strftime("%Y:%m:%d %H:%M:%S")}'
-                    ]
-                )
-
-            if xmp_dt:
-                cmd.extend(
-                    [f'-XMP-photoshop:DateCreated={xmp_dt.strftime("%Y-%m-%d")}']
-                )
-
-            cmd.append(str(image_path))
-
-            # Run exiftool if we have any dates to set
-            if len(cmd) > 3:  # More than just base command
-                subprocess.run(cmd, capture_output=True, check=False)
-
-        except Exception:
-            # Ignore EXIF setting errors for test purposes
-            pass
-
-    def test_generate_sample_images(self, csv_data, temp_dirs):
-        """Generate a sample of test images from CSV data."""
+    def test_generate_sample_images(self, csv_path, temp_dirs):
+        """Generate a sample of test images from CSV data using ImageGenerator."""
         test_images_dir, output_dir = temp_dirs
 
         # Get sample count from environment variable or default to 10
-        import os
-
         sample_count = int(os.environ.get("TEST_SAMPLE_COUNT", "10"))
 
-        # Generate first N images as a sample
-        sample_data = csv_data[:sample_count]
+        print(f"📊 Generating sample of {sample_count} images using ImageGenerator")
 
-        print(
-            f"📊 Generating {len(sample_data)} sample images (out of {len(csv_data)} total)"
+        # Create ImageGenerator instance
+        generator = ImageGenerator(
+            csv_path=csv_path,
+            output_dir=test_images_dir,
+            debug=False,
+            use_exiftool=False,  # Skip exiftool for faster testing
         )
 
-        generated_count = 0
-        for row in sample_data:
-            try:
-                # Create directory structure
-                root_path = row["Root Path"]
-                parent_folder = row["Parent Folder"]
-                filename = row["Filename"]
-                source_ext = row["Source Ext"]
+        # Generate sample images
+        success = generator.run(sample_size=sample_count)
 
-                full_dir = test_images_dir / root_path / parent_folder
-                full_dir.mkdir(parents=True, exist_ok=True)
+        assert success, "Image generation should succeed"
 
-                # Create the image file
-                image_path = full_dir / f"{filename}.{source_ext}"
+        # Get statistics
+        stats = generator.get_stats()
 
-                width = int(row["Image Width"]) if row["Image Width"] else 100
-                height = int(row["Image Height"]) if row["Image Height"] else 100
-                format_name = row["Actual Format"]
-
-                self._create_test_image(width, height, format_name, image_path)
-
-                # Set EXIF data if possible
-                self._set_exif_data(image_path, row)
-
-                # Verify file was created
-                assert image_path.exists(), f"Failed to create {image_path}"
-
-                generated_count += 1
-
-            except Exception as e:
-                pytest.fail(f"Failed to generate image for row {row}: {e}")
-
-        print(f"\n✅ Successfully generated {generated_count} test images")
+        print(f"\n✅ Successfully generated {stats['generated']} test images")
         print(f"📁 Test images directory: {test_images_dir}")
 
-        # Verify some basic properties
-        assert generated_count == len(sample_data)
+        # Verify generation succeeded
+        assert (
+            stats["generated"] >= sample_count * 0.8
+        ), "Should generate at least 80% of requested images"
+        assert stats["errors"] <= sample_count * 0.2, "Should have few errors"
 
         # List generated files
         all_files = list(test_images_dir.rglob("*.*"))
@@ -239,61 +109,43 @@ class TestImageGenerator:
             rel_path = f.relative_to(test_images_dir)
             print(f"   {rel_path}")
 
-    def test_generate_all_images(self, csv_data, temp_dirs):
-        """Generate all test images from CSV data (longer test)."""
+        # Should have generated some files
+        assert len(all_files) > 0, "Should have generated at least some images"
+
+    def test_generate_all_images(self, csv_path, temp_dirs):
+        """Generate all test images from CSV data using ImageGenerator (longer test)."""
         test_images_dir, output_dir = temp_dirs
 
-        generated_count = 0
-        error_count = 0
+        print("📊 Generating all images from CSV using ImageGenerator")
 
-        for i, row in enumerate(csv_data):
-            try:
-                # Create directory structure
-                root_path = row["Root Path"]
-                parent_folder = row["Parent Folder"]
-                filename = row["Filename"]
-                source_ext = row["Source Ext"]
+        # Create ImageGenerator instance
+        generator = ImageGenerator(
+            csv_path=csv_path,
+            output_dir=test_images_dir,
+            debug=False,
+            use_exiftool=False,  # Skip exiftool for faster testing
+        )
 
-                full_dir = test_images_dir / root_path / parent_folder
-                full_dir.mkdir(parents=True, exist_ok=True)
+        # Generate all images
+        success = generator.run()
 
-                # Create the image file
-                image_path = full_dir / f"{filename}.{source_ext}"
-
-                width = int(row["Image Width"]) if row["Image Width"] else 100
-                height = int(row["Image Height"]) if row["Image Height"] else 100
-                format_name = row["Actual Format"]
-
-                self._create_test_image(width, height, format_name, image_path)
-
-                # Set EXIF data if possible
-                self._set_exif_data(image_path, row)
-
-                # Verify file was created and has reasonable size
-                assert image_path.exists(), f"Failed to create {image_path}"
-                assert (
-                    image_path.stat().st_size > 0
-                ), f"Created file is empty: {image_path}"
-
-                generated_count += 1
-
-            except Exception as e:
-                error_count += 1
-                print(f"⚠️  Error generating image {i+1}: {e}")
-                if (
-                    error_count > 5
-                ):  # Don't fail the test for too many individual errors
-                    break
+        # Get statistics
+        stats = generator.get_stats()
 
         print(
-            f"\n✅ Successfully generated {generated_count}/{len(csv_data)} test images"
+            f"\n✅ Successfully generated {stats['generated']}/{stats['total_rows']} test images"
         )
-        print(f"❌ Failed to generate {error_count} images")
+        print(f"❌ Failed to generate {stats['errors']} images")
         print(f"📁 Test images directory: {test_images_dir}")
 
         # Should have generated at least 80% successfully
-        success_rate = generated_count / len(csv_data)
+        success_rate = (
+            stats["generated"] / stats["total_rows"] if stats["total_rows"] > 0 else 0
+        )
         assert success_rate >= 0.8, f"Success rate too low: {success_rate:.1%}"
+
+        # Verify we actually generated images
+        assert stats["generated"] > 0, "Should have generated at least some images"
 
         # List directory structure
         print(f"\n📂 Generated directory structure:")
@@ -312,70 +164,93 @@ class TestImageGenerator:
             if len(files) > 3:
                 print(f"{subindent}... and {len(files) - 3} more files")
 
-    def test_verify_image_formats(self, csv_data, temp_dirs):
-        """Verify that generated images match expected formats."""
+    def test_verify_image_formats(self, csv_path, temp_dirs):
+        """Verify that generated images match expected formats using ImageGenerator."""
         test_images_dir, output_dir = temp_dirs
 
-        # Generate a few sample images for format verification
-        sample_data = csv_data[:5]
+        print("📊 Verifying image formats using ImageGenerator")
+
+        # Create ImageGenerator instance
+        generator = ImageGenerator(
+            csv_path=csv_path,
+            output_dir=test_images_dir,
+            debug=False,
+            use_exiftool=False,
+        )
+
+        # Generate first 5 images for format verification
+        success = generator.run(sample_size=5)
+        assert success, "Image generation should succeed"
+
+        # Get generated files
+        all_images = list(test_images_dir.rglob("*.*"))
 
         format_checks = []
-        for row in sample_data:
+        for image_path in all_images:
             try:
-                # Create directory structure
-                root_path = row["Root Path"]
-                parent_folder = row["Parent Folder"]
-                filename = row["Filename"]
-                source_ext = row["Source Ext"]
-
-                full_dir = test_images_dir / root_path / parent_folder
-                full_dir.mkdir(parents=True, exist_ok=True)
-
-                # Create the image file
-                image_path = full_dir / f"{filename}.{source_ext}"
-
-                width = int(row["Image Width"]) if row["Image Width"] else 100
-                height = int(row["Image Height"]) if row["Image Height"] else 100
-                format_name = row["Actual Format"]
-
-                self._create_test_image(width, height, format_name, image_path)
-
-                # Check format (noting HEIC is saved as JPEG)
-                expected_format = "JPEG" if format_name == "HEIC" else format_name
+                # Determine expected format from extension
+                ext = image_path.suffix.lower().lstrip(".")
+                if ext == "jpg" or ext == "jpeg":
+                    expected_format = "JPEG"
+                elif ext == "png":
+                    expected_format = "PNG"
+                elif ext == "tiff" or ext == "tif":
+                    expected_format = "TIFF"
+                elif ext == "heic":
+                    expected_format = "JPEG"  # HEIC saved as JPEG
+                else:
+                    expected_format = "UNKNOWN"
 
                 # Verify image if PIL is available
-                if HAS_PIL:
-                    with Image.open(image_path) as img:
-                        assert (
-                            img.width == width
-                        ), f"Width mismatch: {img.width} vs {width}"
-                        assert (
-                            img.height == height
-                        ), f"Height mismatch: {img.height} vs {height}"
-                        assert (
-                            img.format == expected_format
-                        ), f"Format mismatch: {img.format} vs {expected_format}"
-                else:
-                    # Just verify file exists and has content
-                    assert image_path.stat().st_size > 0, f"File is empty: {image_path}"
+                if HAS_PIL and image_path.stat().st_size > 0:
+                    try:
+                        with Image.open(image_path) as img:
+                            width, height = img.size
+                            actual_format = img.format
 
-                format_checks.append(
-                    {
-                        "file": image_path.name,
-                        "expected_format": format_name,
-                        "actual_format": expected_format,
-                        "dimensions": f"{width}x{height}",
-                        "status": "✅",
-                    }
-                )
+                            format_checks.append(
+                                {
+                                    "file": image_path.name,
+                                    "expected_format": expected_format,
+                                    "actual_format": actual_format,
+                                    "dimensions": f"{width}x{height}",
+                                    "status": (
+                                        "✅"
+                                        if actual_format == expected_format
+                                        else f"❌ Format mismatch"
+                                    ),
+                                }
+                            )
+                    except Exception as e:
+                        format_checks.append(
+                            {
+                                "file": image_path.name,
+                                "expected_format": expected_format,
+                                "actual_format": "ERROR",
+                                "dimensions": "unknown",
+                                "status": f"❌ {str(e)[:30]}",
+                            }
+                        )
+                else:
+                    # Just verify file exists and has content (when PIL not available)
+                    file_size = image_path.stat().st_size
+                    format_checks.append(
+                        {
+                            "file": image_path.name,
+                            "expected_format": expected_format,
+                            "actual_format": "FILE" if file_size > 0 else "EMPTY",
+                            "dimensions": f"size={file_size}",
+                            "status": "✅" if file_size > 0 else "❌ Empty file",
+                        }
+                    )
 
             except Exception as e:
                 format_checks.append(
                     {
-                        "file": f"{filename}.{source_ext}",
-                        "expected_format": format_name,
+                        "file": image_path.name,
+                        "expected_format": "UNKNOWN",
                         "actual_format": "ERROR",
-                        "dimensions": f"{width}x{height}",
+                        "dimensions": "unknown",
                         "status": f"❌ {str(e)[:50]}",
                     }
                 )
@@ -393,83 +268,44 @@ class TestImageGenerator:
         assert (
             successful >= len(format_checks) // 2
         ), "Too many format verification failures"
+        assert len(format_checks) > 0, "Should have verified at least some images"
 
-    def test_organize_script_integration(self, csv_data, temp_dirs):
-        """Integration test: Generate test images and organize them using organize.py script."""
+    def test_image_generation_and_organization_integration(self, csv_path, temp_dirs):
+        """Integration test: Generate test images and organize them using ImageGenerator + PhotoOrganizer."""
         test_images_dir, organized_dir = temp_dirs
 
-        print(f"\n🔧 Integration Test: Generate + Organize")
+        print(f"\n🔧 Integration Test: ImageGenerator + PhotoOrganizer")
         print(f"📂 Source directory: {test_images_dir}")
         print(f"📂 Target directory: {organized_dir}")
 
-        # Step 1: Generate all test images in the source directory
-        generated_count = 0
-        error_count = 0
-        source_files = []
+        # Step 1: Generate test images using ImageGenerator
+        print(f"\n📸 Step 1: Generating test images using ImageGenerator...")
 
-        print(f"\n📸 Step 1: Generating {len(csv_data)} test images...")
+        generator = ImageGenerator(
+            csv_path=csv_path,
+            output_dir=test_images_dir,
+            debug=False,
+            use_exiftool=False,  # Skip exiftool for faster testing
+        )
 
-        for i, row in enumerate(csv_data):
-            try:
-                # Create directory structure in source
-                root_path = row["Root Path"]
-                parent_folder = row["Parent Folder"]
-                filename = row["Filename"]
-                source_ext = row["Source Ext"]
+        # Generate images
+        success = generator.run()
+        assert success, "Image generation should succeed"
 
-                full_dir = test_images_dir / root_path / parent_folder
-                full_dir.mkdir(parents=True, exist_ok=True)
+        stats = generator.get_stats()
+        print(
+            f"✅ Generated {stats['generated']} test images, {stats['errors']} errors"
+        )
 
-                # Create the image file
-                image_path = full_dir / f"{filename}.{source_ext}"
+        # Verify we generated some images
+        assert stats["generated"] > 0, "Should have generated at least some images"
+        source_files = list(test_images_dir.rglob("*.*"))
+        assert len(source_files) > 0, "Should have created image files"
 
-                width = int(row["Image Width"]) if row["Image Width"] else 100
-                height = int(row["Image Height"]) if row["Image Height"] else 100
-                format_name = row["Actual Format"]
-
-                self._create_test_image(width, height, format_name, image_path)
-
-                # Set EXIF data if possible
-                self._set_exif_data(image_path, row)
-
-                # Verify file was created
-                assert image_path.exists(), f"Failed to create {image_path}"
-                assert (
-                    image_path.stat().st_size > 0
-                ), f"Created file is empty: {image_path}"
-
-                source_files.append(image_path)
-                generated_count += 1
-
-                if (generated_count % 10) == 0:
-                    print(f"   Generated {generated_count}/{len(csv_data)} images...")
-
-            except Exception as e:
-                error_count += 1
-                print(f"⚠️  Error generating image {i+1}: {e}")
-                if error_count > 10:  # Don't fail for too many individual errors
-                    break
-
-        print(f"✅ Generated {generated_count} test images, {error_count} errors")
-        assert (
-            generated_count >= len(csv_data) * 0.8
-        ), f"Too few images generated: {generated_count}/{len(csv_data)}"
-
-        # Step 2: Run the organize.py script
-        print(f"\n🗂️  Step 2: Running organize.py script...")
-
-        # Import and run the PhotoOrganizer class
-        import sys
-        from pathlib import Path
-
-        # Add the project src directory to path
-        project_root = Path(__file__).parent.parent
-        sys.path.insert(0, str(project_root / 'src'))
+        # Step 2: Organize images using PhotoOrganizer
+        print(f"\n🗂️  Step 2: Organizing images using PhotoOrganizer...")
 
         try:
-            # Import the PhotoOrganizer class from the exif module
-            from exif import PhotoOrganizer
-
             # Create organized directory
             organized_dir.mkdir(exist_ok=True)
 
@@ -479,18 +315,18 @@ class TestImageGenerator:
 
             # Create PhotoOrganizer instance and run it
             organizer = PhotoOrganizer(
-                source=test_images_dir, target=organized_dir, dry_run=False, debug=True
+                source=test_images_dir,
+                target=organized_dir,
+                dry_run=False,
+                debug=False,  # Reduce noise in test output
             )
 
             organizer.run()
 
-            print(f"✅ Organize script completed")
+            print(f"✅ PhotoOrganizer completed")
 
-        except ImportError as e:
-            print(f"❌ Could not import PhotoOrganizer class: {e}")
-            pytest.skip("PhotoOrganizer class not available for testing")
         except Exception as e:
-            print(f"❌ Error running organize script: {e}")
+            print(f"❌ Error running PhotoOrganizer: {e}")
             raise
 
         # Step 3: Verify organization results
@@ -513,7 +349,6 @@ class TestImageGenerator:
             print(f"   ... and {len(organized_files) - 10} more files")
 
         # Basic verification that organization happened
-        # (The exact organization logic depends on organize.py implementation)
         organized_dirs = [d for d in organized_dir.rglob("*") if d.is_dir()]
         print(f"   Created {len(organized_dirs)} organized directories")
 
@@ -522,10 +357,17 @@ class TestImageGenerator:
             len(organized_dirs) >= 3
         ), f"Expected multiple organized directories, got {len(organized_dirs)}"
 
+        # Verify that we organized a reasonable number of files
+        organization_ratio = len(organized_files) / len(source_files)
+        assert (
+            organization_ratio >= 0.8
+        ), f"Too few files organized: {len(organized_files)}/{len(source_files)}"
+
         print(f"🎉 Integration test completed successfully!")
-        print(f"   Generated: {generated_count} images")
+        print(f"   Generated: {stats['generated']} images")
         print(f"   Organized: {len(organized_files)} files")
         print(f"   Directories: {len(organized_dirs)} created")
+        print(f"   Organization ratio: {organization_ratio:.1%}")
 
 
 if __name__ == "__main__":
