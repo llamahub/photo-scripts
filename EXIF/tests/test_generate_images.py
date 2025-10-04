@@ -13,8 +13,15 @@ import tempfile
 
 # Try to import our common temp management
 try:
+    import sys
+    from pathlib import Path
+    
+    # Add COMMON src directory to path if not already present
+    common_src = Path(__file__).parent.parent.parent / "COMMON" / "src"
+    if str(common_src) not in sys.path:
+        sys.path.insert(0, str(common_src))
+    
     from common.temp import pytest_temp_dirs
-
     USE_COMMON_TEMP = True
 except ImportError:
     USE_COMMON_TEMP = False
