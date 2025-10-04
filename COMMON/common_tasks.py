@@ -208,17 +208,50 @@ def format(ctx):
 
 
 @task
-def test(ctx, coverage=True, verbose=False):
-    """Run tests."""
-    task_header("test", "Run tests with coverage", ctx, coverage=coverage, verbose=verbose)
+def test(ctx, coverage=True, verbose=False, test_path=""):
+    """Run tests.
+    
+    Args:
+        coverage: Generate coverage reports (default: True, disabled for specific tests)
+        verbose: Run with verbose output
+        test_path: Specific test file, class, or method to run
+                  (e.g. 'tests/test_file.py::TestClass::test_method')
+    
+    Examples:
+        inv test                                    # Run all tests with coverage
+        inv test --test-path="tests/test_file.py"  # Run specific test file
+        inv test -t "tests/test_file.py::TestClass" --no-coverage  # Run test class without coverage
+    """
+    # Adjust task description based on whether running specific tests
+    if test_path:
+        task_header("test", f"Run specific test: {test_path}", ctx, 
+                   coverage=coverage, verbose=verbose, test_path=test_path)
+        # Disable coverage by default for specific tests (can be overridden)
+        coverage = coverage if 'coverage' in ctx.config.run.env else False
+    else:
+        task_header("test", "Run tests with coverage", ctx, 
+                   coverage=coverage, verbose=verbose)
+    
     ensure_venv(ctx)
     
     python_path = get_venv_python()
     cmd = f"{python_path} -m pytest"
+    
+    # Add test path if specified
+    if test_path:
+        cmd += f" {test_path}"
+    
+    # Add coverage only if enabled (and usually not for specific tests)
     if coverage:
         cmd += " --cov=src --cov-report=html --cov-report=term"
+    
+    # Add verbose flag
     if verbose:
         cmd += " -v"
+        
+    # For specific tests, also add -s to see print output
+    if test_path:
+        cmd += " -s"
     
     ctx.run(cmd, pty=True)
 

@@ -257,7 +257,7 @@ def pytest_temp_dirs(
 
     # Create a test-specific temporary base directory under .tmp/test/
     test_base = TempManager.create_persistent_dir("pytest", "test")
-    
+
     try:
         temp_dirs = []
         for i in range(num_dirs):
@@ -267,7 +267,7 @@ def pytest_temp_dirs(
             temp_dirs.append(temp_dir)
 
         yield temp_dirs
-        
+
     finally:
         # Clean up the test directory after use
         try:
