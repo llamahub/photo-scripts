@@ -225,6 +225,8 @@ def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, samp
         inv test -t "tests/test_file.py" --keep-temps  # Keep temp files for inspection
         inv test -t "tests/test_generate_images.py::TestImageGenerator::test_generate_sample_images" --sample-count=25
         inv test -t "tests/test_file.py::TestClass" --no-coverage  # Run test class without coverage
+        inv test -t "tests/test_generate_images.py" --sample-count=55 --keep-temps
+
     """
     # Adjust task description based on whether running specific tests
     if test_path:
