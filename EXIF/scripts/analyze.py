@@ -14,7 +14,7 @@ from exif import ImageAnalyzer, ImageData
 def main():
     parser = argparse.ArgumentParser(description="Analyze image organization and date consistency.")
     parser.add_argument("--source", required=True, help="Source root folder to analyze")
-    parser.add_argument("--target", required=True, help="Target root folder for comparison")
+    parser.add_argument("--target", help="Target root folder for comparison (optional)")
     parser.add_argument("--label", default="", help="Label for target filenames (optional)")
     parser.add_argument("--output", help="CSV output file path (default: .log/analyze_YYYY-MM-DD_HHMM.csv)")
     parser.add_argument("--no-stats", action="store_true", help="Don't print statistics to console")
@@ -36,6 +36,10 @@ def main():
         csv_path = os.path.join(log_dir, f"analyze_{now}.csv")
     
     print(f"Analyzing images in: {args.source}")
+    if args.target:
+        print(f"Target comparison: {args.target}")
+    else:
+        print(f"Target comparison: (skipped)")
     print(f"Output CSV: {csv_path}")
     
     try:
@@ -43,16 +47,22 @@ def main():
         analyzer = ImageAnalyzer(folder_path=args.source, csv_output=csv_path)
         results = analyzer.analyze_images()
         
-        # Generate target filename and target exists info for each result
-        for result in results:
-            if 'error' not in result:
-                source_path = result['filepath']
-                target_path = ImageData.getTargetFilename(source_path, args.target, args.label)
-                target_exists = os.path.exists(target_path)
-                
-                # Add target information to result
-                result['target_path'] = target_path
-                result['target_exists'] = "TRUE" if target_exists else "FALSE"
+        # Generate target filename and target exists info for each result (only if target specified)
+        if args.target:
+            for result in results:
+                if 'error' not in result:
+                    source_path = result['filepath']
+                    target_path = ImageData.getTargetFilename(source_path, args.target, args.label)
+                    target_exists = os.path.exists(target_path)
+                    
+                    # Add target information to result
+                    result['target_path'] = target_path
+                    result['target_exists'] = "TRUE" if target_exists else "FALSE"
+        else:
+            # Add empty target fields when no target specified
+            for result in results:
+                result['target_path'] = ""
+                result['target_exists'] = ""
         
         # Save to CSV with custom format to match original
         save_custom_csv(csv_path, results)

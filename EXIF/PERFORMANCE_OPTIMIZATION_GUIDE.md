@@ -8,14 +8,17 @@ When analyzing folders with many images (thousands to millions), here are the ke
 
 ### Quick Start
 ```bash
-# Use the high-performance version instead of regular analyze.py
+# Maximum speed - analyze without target path generation
+python scripts/analyze_fast.py --source /path/to/images
+
+# Include target comparison (slower but more comprehensive)
 python scripts/analyze_fast.py --source /path/to/images --target /path/to/target
 
 # Analyze a sample first for quick insights
-python scripts/analyze_fast.py --source /path/to/images --target /path/to/target --sample 1000
+python scripts/analyze_fast.py --source /path/to/images --sample 1000
 
 # Tune performance parameters
-python scripts/analyze_fast.py --source /path/to/images --target /path/to/target --workers 16 --batch-size 200
+python scripts/analyze_fast.py --source /path/to/images --workers 16 --batch-size 200
 ```
 
 ### Performance Improvements
@@ -27,6 +30,19 @@ python scripts/analyze_fast.py --source /path/to/images --target /path/to/target
 
 ## 2. Key Performance Parameters
 
+### `--target` (Optional)
+- **Omit for maximum speed**: Skip slow target path generation
+- **Include for comparison**: Generate target paths and check existence
+- **Speed difference**: 2-5x faster without target processing
+
+```bash
+# Maximum speed - no target processing
+python scripts/analyze_fast.py --source /path/to/images
+
+# With target comparison (slower but comprehensive)
+python scripts/analyze_fast.py --source /path/to/images --target /organized
+```
+
 ### `--batch-size` (Default: 100)
 - **Larger batches = fewer subprocess calls**
 - Recommended: 50-200 for most systems
@@ -35,10 +51,10 @@ python scripts/analyze_fast.py --source /path/to/images --target /path/to/target
 
 ```bash
 # For fast SSDs and lots of RAM
-python scripts/analyze_fast.py --source /path --target /path --batch-size 200
+python scripts/analyze_fast.py --source /path --batch-size 200
 
 # For slower storage or limited memory  
-python scripts/analyze_fast.py --source /path --target /path --batch-size 50
+python scripts/analyze_fast.py --source /path --batch-size 50
 ```
 
 ### `--workers` (Default: auto-detect)
@@ -84,39 +100,44 @@ python scripts/analyze_fast.py --source /huge/collection --target /target --samp
 
 ### Small Collections (< 1,000 images)
 ```bash
-# Standard analysis is fine
-python scripts/analyze.py --source /photos --target /organized
+# Maximum speed analysis
+python scripts/analyze_fast.py --source /photos
 ```
 
 ### Medium Collections (1,000 - 50,000 images)
 ```bash
-# Use optimized analyzer with defaults
+# Fast analysis without target paths
+python scripts/analyze_fast.py --source /photos
+
+# With target comparison if needed
 python scripts/analyze_fast.py --source /photos --target /organized
 
 # Sample first for quick overview
-python scripts/analyze_fast.py --source /photos --target /organized --sample 500
+python scripts/analyze_fast.py --source /photos --sample 500
 ```
 
 ### Large Collections (50,000 - 500,000 images)
 ```bash
-# Tune for performance
+# Maximum speed - no target processing
+python scripts/analyze_fast.py --source /photos --workers 16 --batch-size 150
+
+# With target comparison (slower)
 python scripts/analyze_fast.py --source /photos --target /organized \
   --workers 16 --batch-size 150
 
 # Process in segments if needed
-python scripts/analyze_fast.py --source /photos/2020 --target /organized
-python scripts/analyze_fast.py --source /photos/2021 --target /organized
+python scripts/analyze_fast.py --source /photos/2020
+python scripts/analyze_fast.py --source /photos/2021
 ```
 
 ### Massive Collections (500,000+ images)
 ```bash
-# Maximum performance settings
-python scripts/analyze_fast.py --source /photos --target /organized \
-  --workers 32 --batch-size 200
+# Ultimate speed - no target processing
+python scripts/analyze_fast.py --source /photos --workers 32 --batch-size 200
 
 # Consider folder-by-folder analysis
 for year in 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024; do
-  python scripts/analyze_fast.py --source /photos/$year --target /organized \
+  python scripts/analyze_fast.py --source /photos/$year \
     --output "analysis_$year.csv" --workers 32 --batch-size 200
 done
 ```
