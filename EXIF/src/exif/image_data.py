@@ -132,22 +132,40 @@ class ImageData:
                     dt,
                 )
                 return cls.normalize_date(dt)
+        
+        # Try to extract date from filename as fallback
+        filename_date = cls.getFilenameDate(filepath)
+        if filename_date != "1900-01-01 00:00":
+            return filename_date
+            
         return "1900-01-01 00:00"
 
     @classmethod
     def getFilenameDate(cls, filename):
         base = os.path.basename(filename)
         patterns = [
+            # YYYY-MM-DD formats (with hyphens)
             (
                 r"^(\d{4})-(\d{2})-(\d{2})",
                 lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
             ),
             (r"^(\d{4})-(\d{2})", lambda m: f"{m.group(1)}-{m.group(2)}-01"),
+            # YYYY_MM_DD formats (with underscores)
             (
                 r"^(\d{4})_(\d{2})_(\d{2})",
                 lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
             ),
             (r"^(\d{4})_(\d{2})", lambda m: f"{m.group(1)}-{m.group(2)}-01"),
+            # YYYYMMDD_HHMMSS format (compact format commonly used by cameras)
+            (
+                r"^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",
+                lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}:{m.group(6)}",
+            ),
+            # YYYYMMDD format (compact date only)
+            (
+                r"^(\d{4})(\d{2})(\d{2})",
+                lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
+            ),
         ]
         for pat, func in patterns:
             m = re.match(pat, base)

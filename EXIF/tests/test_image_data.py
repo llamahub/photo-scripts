@@ -65,11 +65,30 @@ def test_extract_alt_filename_date():
 
 
 def test_getFilenameDate():
-    assert ImageData.getFilenameDate("2020-01-02_test.jpg") == "2020-01-02 00:00"
-    assert ImageData.getFilenameDate("2020-01_test.jpg") == "2020-01-01 00:00"
-    assert ImageData.getFilenameDate("2020_01_02_test.jpg") == "2020-01-02 00:00"
-    assert ImageData.getFilenameDate("2020_01_test.jpg") == "2020-01-01 00:00"
-    assert ImageData.getFilenameDate("test.jpg") == "1900-01-01 00:00"
+    """Test filename date extraction."""
+    # Test with hyphenated date format
+    result = ImageData.getFilenameDate("2023-06-15_photo.jpg")
+    assert result == "2023-06-15 00:00"
+    
+    # Test with underscore date format  
+    result = ImageData.getFilenameDate("2023_06_15_photo.jpg")
+    assert result == "2023-06-15 00:00"
+    
+    # Test with year-month only
+    result = ImageData.getFilenameDate("2023-06_photo.jpg")
+    assert result == "2023-06-01 00:00"
+    
+    # Test with compact YYYYMMDD_HHMMSS format (common camera format)
+    result = ImageData.getFilenameDate("20240210_091738.jpg")
+    assert result == "2024-02-10 09:17"
+    
+    # Test with compact YYYYMMDD format (date only)
+    result = ImageData.getFilenameDate("20240210.jpg")
+    assert result == "2024-02-10 00:00"
+    
+    # Test with no date pattern
+    result = ImageData.getFilenameDate("random_photo.jpg")
+    assert result == "1900-01-01 00:00"
 
 
 def test_getParentName(tmp_path):
@@ -135,3 +154,83 @@ def test_getImageDate(monkeypatch):
     assert ImageData.getImageDate("foo.jpg") == "2020-01-02 12:34"
     monkeypatch.setattr(ImageData, "get_exif", staticmethod(lambda x: {}))
     assert ImageData.getImageDate("foo.jpg") == "1900-01-01 00:00"
+
+
+def test_getImageDate_priority_order(monkeypatch):
+    """Test that date fields are checked in correct priority order."""
+    
+    # Test 1: DateTimeOriginal (highest priority) is preferred over all others
+    def mock_with_all_dates(filepath):
+        return {
+            "DateTimeOriginal": "2020:01:01 10:00:00",  # Should win
+            "ExifIFD:DateTimeOriginal": "2020:02:02 11:00:00",
+            "XMP-photoshop:DateCreated": "2020:03:03 12:00:00", 
+            "FileModifyDate": "2020:04:04 13:00:00"
+        }
+    
+    monkeypatch.setattr(ImageData, "get_exif", staticmethod(mock_with_all_dates))
+    assert ImageData.getImageDate("test.jpg") == "2020-01-01 10:00"
+    
+    # Test 2: ExifIFD:DateTimeOriginal wins when DateTimeOriginal is missing
+    def mock_without_datetime_original(filepath):
+        return {
+            "ExifIFD:DateTimeOriginal": "2020:02:02 11:00:00",  # Should win
+            "XMP-photoshop:DateCreated": "2020:03:03 12:00:00",
+            "FileModifyDate": "2020:04:04 13:00:00"
+        }
+    
+    monkeypatch.setattr(ImageData, "get_exif", staticmethod(mock_without_datetime_original))
+    assert ImageData.getImageDate("test.jpg") == "2020-02-02 11:00"
+    
+    # Test 3: XMP-photoshop:DateCreated wins when both DateTime fields are missing
+    def mock_only_xmp_and_file(filepath):
+        return {
+            "XMP-photoshop:DateCreated": "2020:03:03 12:00:00",  # Should win
+            "FileModifyDate": "2020:04:04 13:00:00"
+        }
+    
+    monkeypatch.setattr(ImageData, "get_exif", staticmethod(mock_only_xmp_and_file))
+    assert ImageData.getImageDate("test.jpg") == "2020-03-03 12:00"
+    
+    # Test 4: FileModifyDate (lowest priority) is used when all others are missing
+    def mock_only_file_modify(filepath):
+        return {
+            "FileModifyDate": "2020:04:04 13:00:00"  # Last resort
+        }
+    
+    monkeypatch.setattr(ImageData, "get_exif", staticmethod(mock_only_file_modify))
+    assert ImageData.getImageDate("test.jpg") == "2020-04-04 13:00"
+    
+    # Test 5: Empty/None values are skipped in priority order
+    def mock_with_empty_high_priority(filepath):
+        return {
+            "DateTimeOriginal": "",  # Empty, should be skipped
+            "ExifIFD:DateTimeOriginal": None,  # None, should be skipped  
+            "XMP-photoshop:DateCreated": "2020:03:03 12:00:00",  # Should win
+            "FileModifyDate": "2020:04:04 13:00:00"
+        }
+    
+    monkeypatch.setattr(ImageData, "get_exif", staticmethod(mock_with_empty_high_priority))
+    assert ImageData.getImageDate("test.jpg") == "2020-03-03 12:00"
+
+
+def test_getImageDate_filename_fallback(monkeypatch):
+    """Test that getImageDate falls back to filename parsing when no EXIF data is available."""
+    
+    # Test filename fallback when no metadata is available
+    def mock_no_metadata(filepath):
+        return {}
+    
+    monkeypatch.setattr(ImageData, "get_exif", staticmethod(mock_no_metadata))
+    
+    # Should extract date from filename in YYYYMMDD_HHMMSS format
+    result = ImageData.getImageDate("20240210_091738.jpg")
+    assert result == "2024-02-10 09:17"
+    
+    # Should extract date from filename in YYYYMMDD format
+    result = ImageData.getImageDate("20240210.jpg")
+    assert result == "2024-02-10 00:00"
+    
+    # Should return fallback when no filename pattern matches
+    result = ImageData.getImageDate("random_photo.jpg")
+    assert result == "1900-01-01 00:00"
