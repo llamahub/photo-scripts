@@ -5,5 +5,6 @@ from .photo_organizer import PhotoOrganizer
 from .image_generator import ImageGenerator
 from .image_selector import ImageSelector
 from .image_analyzer import ImageAnalyzer
+from .optimized_image_analyzer import OptimizedImageAnalyzer
 
-__all__ = ['ImageData', 'PhotoOrganizer', 'ImageGenerator', 'ImageSelector', 'ImageAnalyzer']
+__all__ = ['ImageData', 'PhotoOrganizer', 'ImageGenerator', 'ImageSelector', 'ImageAnalyzer', 'OptimizedImageAnalyzer']
