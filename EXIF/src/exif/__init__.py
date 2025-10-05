@@ -6,4 +6,10 @@ from .image_generator import ImageGenerator
 from .image_selector import ImageSelector
 from .image_analyzer import ImageAnalyzer
 
-__all__ = ['ImageData', 'PhotoOrganizer', 'ImageGenerator', 'ImageSelector', 'ImageAnalyzer']
+__all__ = [
+    "ImageData",
+    "PhotoOrganizer",
+    "ImageGenerator",
+    "ImageSelector",
+    "ImageAnalyzer",
+]
