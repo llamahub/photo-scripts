@@ -132,12 +132,12 @@ class ImageData:
                     dt,
                 )
                 return cls.normalize_date(dt)
-        
+
         # Try to extract date from filename as fallback
         filename_date = cls.getFilenameDate(filepath)
         if filename_date != "1900-01-01 00:00":
             return filename_date
-            
+
         return "1900-01-01 00:00"
 
     @classmethod

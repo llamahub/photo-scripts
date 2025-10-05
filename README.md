@@ -26,9 +26,12 @@ source activate.sh          # Activate environment
 inv r -n organize -a '--help' # Run scripts with shortcut syntax
 ```
 
+**📖 For detailed setup instructions, see [SETUP_GUIDE.md](SETUP_GUIDE.md)**
+
 ## Documentation Structure
 
 - **[.vscode/ai-assistant-prompt.md](.vscode/ai-assistant-prompt.md)** - **Primary AI assistant guide** with patterns and templates
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - **Complete setup instructions and methods**
 - **[SETUP_TROUBLESHOOTING.md](SETUP_TROUBLESHOOTING.md)** - **System setup and dependency troubleshooting**
 - **[DEVELOPMENT_HISTORY.md](DEVELOPMENT_HISTORY.md)** - Project context and architectural decisions
 - **[COMMON/ARCHITECTURE.md](COMMON/ARCHITECTURE.md)** - Technical framework details
