@@ -52,35 +52,46 @@ class TestAnalyzeScript:
         return result
 
     def test_script_requires_source_argument(self):
-        """Test script fails when --source argument is missing."""
+        """Test script fails when source argument is missing."""
         result = self.run_script(["--target", self.test_target])
 
         assert result.returncode != 0
-        assert "required" in result.stderr.lower() or "source" in result.stderr.lower()
+        # Our custom error message goes to stdout
+        assert "required" in result.stdout.lower() or "source" in result.stdout.lower()
 
     def test_script_requires_target_argument(self):
         """Test script runs successfully without target for faster analysis (optimized behavior)."""
-        result = self.run_script(["--source", self.test_source])
+        result = self.run_script([self.test_source])
 
         # With the optimized version, target is optional for faster analysis
         assert result.returncode == 0
         assert "skipped for faster analysis" in result.stdout
 
+    def test_script_named_source_argument(self):
+        """Test script works with named --source argument for backward compatibility."""
+        result = self.run_script(["--source", self.test_source])
+
+        assert result.returncode == 0
+        assert "skipped for faster analysis" in result.stdout
+
+    def test_script_both_source_arguments_error(self):
+        """Test script fails when both positional and named source are provided."""
+        result = self.run_script([self.test_source, "--source", self.test_source])
+
+        assert result.returncode != 0
+        assert "both" in result.stdout.lower()
+
     def test_script_nonexistent_source_folder(self):
         """Test script fails gracefully for nonexistent source folder."""
         nonexistent = os.path.join(self.temp_dir, "nonexistent")
-        result = self.run_script(
-            ["--source", nonexistent, "--target", self.test_target]
-        )
+        result = self.run_script([nonexistent, "--target", self.test_target])
 
         assert result.returncode != 0
         assert "not found" in result.stderr or "not found" in result.stdout
 
     def test_script_basic_execution(self):
         """Test script executes successfully with basic arguments."""
-        result = self.run_script(
-            ["--source", self.test_source, "--target", self.test_target]
-        )
+        result = self.run_script([self.test_source, "--target", self.test_target])
 
         # Just test that the script runs successfully without mocking
         assert result.returncode == 0
@@ -99,7 +110,6 @@ class TestAnalyzeScript:
 
             result = self.run_script(
                 [
-                    "--source",
                     self.test_source,
                     "--target",
                     self.test_target,
@@ -129,7 +139,6 @@ class TestAnalyzeScript:
 
             result = self.run_script(
                 [
-                    "--source",
                     self.test_source,
                     "--target",
                     self.test_target,
@@ -153,7 +162,6 @@ class TestAnalyzeScript:
 
             result = self.run_script(
                 [
-                    "--source",
                     self.test_source,
                     "--target",
                     self.test_target,
@@ -175,9 +183,7 @@ class TestAnalyzeScript:
             mock_analyzer_class.return_value = mock_analyzer
             mock_analyzer.analyze_images.return_value = []
 
-            result = self.run_script(
-                ["--source", self.test_source, "--target", self.test_target]
-            )
+            result = self.run_script([self.test_source, "--target", self.test_target])
 
             assert result.returncode == 0
             assert os.path.exists(self.log_dir)
@@ -191,7 +197,7 @@ class TestAnalyzeScript:
             "High-performance image organization and date consistency analysis"
             in result.stdout
         )
-        assert "--source" in result.stdout
+        assert "source" in result.stdout  # Now a positional argument
         assert "--target" in result.stdout
 
     def test_script_error_handling(self):
@@ -202,9 +208,7 @@ class TestAnalyzeScript:
         # Test with a source that will cause a real error (nonexistent directory)
         nonexistent_source = os.path.join(self.temp_dir, "nonexistent_source")
 
-        result = self.run_script(
-            ["--source", nonexistent_source, "--target", self.test_target]
-        )
+        result = self.run_script([nonexistent_source, "--target", self.test_target])
 
         assert result.returncode != 0
         assert "not found" in result.stderr or "not found" in result.stdout
@@ -286,7 +290,6 @@ class TestAnalyzeScript:
         # Run the actual script without mocking since we want integration testing
         result = self.run_script(
             [
-                "--source",
                 self.test_source,
                 "--target",
                 self.test_target,

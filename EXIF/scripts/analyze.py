@@ -13,7 +13,8 @@ from exif import ImageAnalyzer, ImageData
 
 def main():
     parser = argparse.ArgumentParser(description="High-performance image organization and date consistency analysis.")
-    parser.add_argument("--source", required=True, help="Source root folder to analyze")
+    parser.add_argument("source", nargs="?", help="Source root folder to analyze")
+    parser.add_argument("--source", dest="source_named", help="Source root folder to analyze (alternative to positional)")
     parser.add_argument("--target", help="Target root folder for comparison (optional - omit for faster analysis)")
     parser.add_argument("--label", default="", help="Label for target filenames (optional)")
     parser.add_argument("--output", help="CSV output file path (default: .log/analyze_fast_YYYY-MM-DD_HHMM.csv)")
@@ -24,9 +25,21 @@ def main():
     
     args = parser.parse_args()
     
+    # Handle both positional and named source arguments
+    if args.source and args.source_named:
+        print("Error: Please provide source either as positional argument or --source, not both")
+        sys.exit(1)
+    elif args.source_named:
+        source_folder = args.source_named
+    elif args.source:
+        source_folder = args.source
+    else:
+        print("Error: Source folder is required (provide as positional argument or --source)")
+        sys.exit(1)
+    
     # Validate source folder
-    if not os.path.exists(args.source):
-        print(f"Error: Source folder not found: {args.source}")
+    if not os.path.exists(source_folder):
+        print(f"Error: Source folder not found: {source_folder}")
         sys.exit(1)
     
     # Determine output file path
@@ -39,7 +52,7 @@ def main():
         csv_path = os.path.join(log_dir, f"analyze_fast_{now}.csv")
     
     print(f"High-Performance Image Analysis")
-    print(f"Source: {args.source}")
+    print(f"Source: {source_folder}")
     if args.target:
         print(f"Target: {args.target}")
     else:
@@ -55,8 +68,10 @@ def main():
     try:
         # Create analyzer
         analyzer = ImageAnalyzer(
-            folder_path=args.source, 
-            csv_output=csv_path,
+            folder_path=source_folder, 
+            target_path=args.target,
+            output_path=csv_path,
+            label=args.label,
             max_workers=args.workers,
             batch_size=args.batch_size
         )
