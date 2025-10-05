@@ -17,6 +17,21 @@ def check_python_version():
     print(f"Using Python {sys.version}")
 
 
+def check_system_dependencies():
+    """Check for required system dependencies."""
+    # Check for ExifTool (required for EXIF photo processing)
+    try:
+        subprocess.run(['exiftool', '-ver'], capture_output=True, check=True)
+        print("✓ ExifTool found")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("⚠️  ExifTool not found - required for EXIF photo processing")
+        print("   Install with:")
+        print("   Ubuntu/Debian: sudo apt install libimage-exiftool-perl")
+        print("   macOS: brew install exiftool")
+        print("   Windows: Download from https://exiftool.org/")
+        print("   (Photo organization will fall back to filename parsing)")
+
+
 def create_venv(venv_path: Path, recreate: bool = False) -> None:
     """Create virtual environment."""
     if recreate and venv_path.exists():
@@ -98,6 +113,7 @@ def install_dependencies(venv_path: Path, project_path: Path) -> None:
 def setup_environment(project_path: Path = None, recreate: bool = False) -> None:
     """Setup virtual environment for project."""
     check_python_version()
+    check_system_dependencies()
     
     if project_path is None:
         project_path = Path.cwd()

@@ -48,6 +48,7 @@ Examples:
   %(prog)s /path/to/photos /path/to/organized
   %(prog)s --source /path/to/photos --target /path/to/organized --dry-run
   %(prog)s /path/to/photos /path/to/organized --debug
+  . run organize "tests/test_images .tmp/sorted" 
         """
     )
     

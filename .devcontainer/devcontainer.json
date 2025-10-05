@@ -13,7 +13,7 @@
 
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "uname -a",
-	"postCreateCommand": "apt update && apt install -y python3-venv",
+	"postCreateCommand": "./setup-system-deps.sh",
 
 	// Configure tool-specific properties.
 	// "customizations": {},

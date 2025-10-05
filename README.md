@@ -4,20 +4,59 @@ A Python monorepo framework for photo processing tools with shared infrastructur
 
 ## Quick Start
 
+### Option 1: Dev Container (Recommended)
 ```bash
+# Open in VS Code with dev containers extension
+# Dependencies install automatically via setup-system-deps.sh
+
 cd EXIF/                    # Navigate to any project
 ./setenv --recreate         # Create virtual environment
 source activate.sh          # Activate environment
-inv r -n sample -a '--help' # Run scripts with shortcut syntax
+inv r -n organize -a '--help' # Run scripts with shortcut syntax
+```
+
+### Option 2: Local Development
+```bash
+# Install system dependencies first
+./setup-system-deps.sh      # Installs Python, ExifTool, etc.
+
+cd EXIF/                    # Navigate to any project
+./setenv --recreate         # Create virtual environment
+source activate.sh          # Activate environment
+inv r -n organize -a '--help' # Run scripts with shortcut syntax
 ```
 
 ## Documentation Structure
 
 - **[.vscode/ai-assistant-prompt.md](.vscode/ai-assistant-prompt.md)** - **Primary AI assistant guide** with patterns and templates
+- **[SETUP_TROUBLESHOOTING.md](SETUP_TROUBLESHOOTING.md)** - **System setup and dependency troubleshooting**
 - **[DEVELOPMENT_HISTORY.md](DEVELOPMENT_HISTORY.md)** - Project context and architectural decisions
 - **[COMMON/ARCHITECTURE.md](COMMON/ARCHITECTURE.md)** - Technical framework details
 - **[EXIF/scripts/SAMPLE_EVOLUTION.md](EXIF/scripts/SAMPLE_EVOLUTION.md)** - Script development case study
 - **[photo-scripts.code-workspace](photo-scripts.code-workspace)** - VS Code workspace configuration
+
+## System Requirements
+
+### Required Dependencies
+- **Python 3.8+**: Core runtime environment
+- **ExifTool**: EXIF metadata extraction (critical for photo organization)
+
+### Automated Installation
+Use the provided setup script to install all system dependencies:
+
+```bash
+./setup-system-deps.sh          # Auto-detects OS and installs dependencies
+./setup-system-deps.sh --help   # Show installation options
+```
+
+**Supported Platforms:**
+- **Linux (Ubuntu/Debian)**: Installs via `apt` (requires `sudo`)
+- **macOS**: Installs via Homebrew (requires `brew` to be installed)
+- **Windows**: Provides manual installation instructions
+
+**Dev Container Users**: Dependencies install automatically - no manual setup needed!
+
+**Having Issues?** See [SETUP_TROUBLESHOOTING.md](SETUP_TROUBLESHOOTING.md) for common solutions.
 
 ## Core Framework
 
