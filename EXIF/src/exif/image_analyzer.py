@@ -189,7 +189,7 @@ class ImageAnalyzer(ImageData):
 
         return {}
 
-    def _analyze_single_image_cached(self, image_path):
+    def _analyze_single_image_cached(self, image_path, exif_data=None):
         """Analyze a single image with full backward compatibility format."""
         try:
             # Get basic file info
