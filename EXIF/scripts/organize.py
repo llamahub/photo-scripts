@@ -47,7 +47,8 @@ Where:
 Examples:
   %(prog)s /path/to/photos /path/to/organized
   %(prog)s --source /path/to/photos --target /path/to/organized --dry-run
-  %(prog)s /path/to/photos /path/to/organized --debug
+  %(prog)s /path/to/photos /path/to/organized --debug --move
+  %(prog)s /path/to/photos /path/to/organized --workers 8 --move
   . run organize "tests/test_images .tmp/sorted" 
         """
     )
@@ -65,6 +66,10 @@ Examples:
                        help='Show what would be done without actually copying files')
     parser.add_argument('--debug', action='store_true',
                        help='Enable debug output with detailed logging')
+    parser.add_argument('--move', action='store_true',
+                       help='Move files instead of copying them (faster for large sets)')
+    parser.add_argument('--workers', type=int, 
+                       help='Number of parallel workers (default: auto-detect, use 1 for single-threaded)')
     
     args = parser.parse_args()
     
@@ -82,7 +87,9 @@ Examples:
             source=source,
             target=target,
             dry_run=args.dry_run,
-            debug=args.debug
+            debug=args.debug,
+            move_files=args.move,
+            max_workers=args.workers
         )
         
         organizer.run()

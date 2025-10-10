@@ -14,6 +14,7 @@ Target directory structure: <decade>/<year>/<year>-<month>/<parent folder>/<file
 
 import os
 import shutil
+import concurrent.futures
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
@@ -54,7 +55,13 @@ class PhotoOrganizer:
     }
 
     def __init__(
-        self, source: Path, target: Path, dry_run: bool = False, debug: bool = False
+        self,
+        source: Path,
+        target: Path,
+        dry_run: bool = False,
+        debug: bool = False,
+        move_files: bool = False,
+        max_workers: int = None,
     ):
         """
         Initialize PhotoOrganizer.
@@ -64,17 +71,22 @@ class PhotoOrganizer:
             target: Target directory for organized photos
             dry_run: If True, show what would be done without actually copying files
             debug: If True, enable debug logging
+            move_files: If True, move files instead of copying them
+            max_workers: Number of parallel workers (default: CPU count)
         """
         self.source = Path(source).resolve()
         self.target = Path(target).resolve()
         self.dry_run = dry_run
         self.debug = debug
+        self.move_files = move_files
+        self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
 
         # Setup logging
         self._setup_logging()
 
         # Statistics tracking
-        self.stats = {"processed": 0, "copied": 0, "skipped": 0, "errors": 0}
+        action = "moved" if move_files else "copied"
+        self.stats = {"processed": 0, action: 0, "skipped": 0, "errors": 0}
 
     def _setup_logging(self):
         """Setup logging using COMMON ScriptLogging if available, otherwise fallback."""
@@ -174,7 +186,7 @@ class PhotoOrganizer:
 
     def copy_image(self, source_file: Path, target_file: Path) -> bool:
         """
-        Copy image file to target location.
+        Copy or move image file to target location.
 
         Args:
             source_file: Source file path
@@ -196,19 +208,32 @@ class PhotoOrganizer:
                     self.stats["skipped"] += 1
                     return False
 
-                # Copy the file
-                shutil.copy2(source_file, target_file)
-                self.stats["copied"] += 1
+                # Move or copy the file
+                if self.move_files:
+                    shutil.move(str(source_file), str(target_file))
+                    action_key = "moved"
+                else:
+                    shutil.copy2(source_file, target_file)
+                    action_key = "copied"
+
+                self.stats[action_key] += 1
             else:
                 # Dry run - just log what would happen
-                self.stats["copied"] += 1
+                action_key = "moved" if self.move_files else "copied"
+                self.stats[action_key] += 1
 
-            action = "Would copy" if self.dry_run else "Copied"
+            operation = "move" if self.move_files else "copy"
+            action = (
+                f"Would {operation}"
+                if self.dry_run
+                else f"{'Moved' if self.move_files else 'Copied'}"
+            )
             self.logger.debug(f"{action}: {source_file} -> {target_file}")
             return True
 
         except Exception as e:
-            self.logger.error(f"Error copying {source_file} to {target_file}: {e}")
+            operation = "moving" if self.move_files else "copying"
+            self.logger.error(f"Error {operation} {source_file} to {target_file}: {e}")
             self.stats["errors"] += 1
             return False
 
@@ -294,28 +319,64 @@ class PhotoOrganizer:
             self.logger.info("No image files found to process")
             return
 
-        # Process each image
-        self.logger.info(f"Starting to process {len(images)} images...")
+        # Process each image (with parallel processing)
+        operation = "move" if self.move_files else "copy"
+        self.logger.info(
+            f"Starting to {operation} {len(images)} images using {self.max_workers} workers..."
+        )
 
-        for i, image_file in enumerate(images, 1):
-            if i % 50 == 0 or i == len(images):  # Progress indicator
-                self.logger.info(f"Progress: {i}/{len(images)} images processed")
+        if self.max_workers == 1:
+            # Single-threaded processing
+            for i, image_file in enumerate(images, 1):
+                if i % 50 == 0 or i == len(images):  # Progress indicator
+                    self.logger.info(f"Progress: {i}/{len(images)} images processed")
+                self.process_image(image_file)
+        else:
+            # Multi-threaded processing
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=self.max_workers
+            ) as executor:
+                # Submit all tasks
+                future_to_image = {
+                    executor.submit(self.process_image, image_file): image_file
+                    for image_file in images
+                }
 
-            self.process_image(image_file)
+                # Process completed tasks
+                completed = 0
+                for future in concurrent.futures.as_completed(future_to_image):
+                    completed += 1
+                    if completed % 50 == 0 or completed == len(images):
+                        self.logger.info(
+                            f"Progress: {completed}/{len(images)} images processed"
+                        )
+
+                    try:
+                        future.result()  # This will raise any exception that occurred
+                    except Exception as e:
+                        image_file = future_to_image[future]
+                        self.logger.error(f"Error processing {image_file}: {e}")
+                        self.stats["errors"] += 1
 
         # Log final statistics
+        operation = "moved" if self.move_files else "copied"
+        action_count = self.stats.get("moved", 0) + self.stats.get("copied", 0)
+
         summary = [
             "=" * 80,
             " ORGANIZATION COMPLETE",
             "=" * 80,
             f"Total files processed: {self.stats['processed']}",
-            f"Files copied: {self.stats['copied']}",
+            f"Files {operation}: {action_count}",
             f"Files skipped: {self.stats['skipped']}",
             f"Errors encountered: {self.stats['errors']}",
         ]
 
         if self.dry_run:
-            summary.append("NOTE: This was a dry run - no files were actually copied")
+            operation_verb = "moved" if self.move_files else "copied"
+            summary.append(
+                f"NOTE: This was a dry run - no files were actually {operation_verb}"
+            )
 
         summary.append("=" * 80)
 

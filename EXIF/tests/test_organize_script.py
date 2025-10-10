@@ -205,6 +205,80 @@ class TestOrganizeScript:
         assert result.returncode == 0
         assert "Error:" not in result.stderr
 
+    def test_script_move_option(self, script_path, temp_dirs):
+        """Test the --move option works correctly."""
+        source_dir, target_dir = temp_dirs
+        test_image = source_dir / "test_image.jpg"
+        test_image.write_bytes(b"fake image data")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                str(source_dir),
+                str(target_dir),
+                "--dry-run",
+                "--move",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "TARGET:" in result.stderr
+        assert "Starting to move" in result.stderr
+        assert "Files moved:" in result.stderr
+
+    def test_script_workers_option(self, script_path, temp_dirs):
+        """Test the --workers option works correctly."""
+        source_dir, target_dir = temp_dirs
+        test_image = source_dir / "test_image.jpg"
+        test_image.write_bytes(b"fake image data")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                str(source_dir),
+                str(target_dir),
+                "--dry-run",
+                "--workers",
+                "4",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "TARGET:" in result.stderr
+        assert "4 workers" in result.stderr
+
+    def test_script_move_and_workers_combined(self, script_path, temp_dirs):
+        """Test the --move and --workers options work together."""
+        source_dir, target_dir = temp_dirs
+        test_image = source_dir / "test_image.jpg"
+        test_image.write_bytes(b"fake image data")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                str(source_dir),
+                str(target_dir),
+                "--dry-run",
+                "--move",
+                "--workers",
+                "8",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "TARGET:" in result.stderr
+        assert "Starting to move" in result.stderr
+        assert "8 workers" in result.stderr
+
 
 class TestOrganizeScriptIntegration:
     """Integration tests for the organize.py script with actual PhotoOrganizer functionality."""

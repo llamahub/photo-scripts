@@ -333,3 +333,74 @@ class TestPhotoOrganizer:
         assert organizer.stats["processed"] == len(image_files)
         assert organizer.stats["copied"] == len(image_files)
         assert organizer.stats["errors"] == 0
+
+    def test_init_with_move_files(self):
+        """Test PhotoOrganizer initialization with move_files option."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            target = Path(temp_dir) / "target"
+            source.mkdir()
+
+            organizer = PhotoOrganizer(source, target, move_files=True)
+
+            assert organizer.move_files is True
+            assert "moved" in organizer.stats
+            assert organizer.stats["moved"] == 0
+
+    def test_init_with_workers(self):
+        """Test PhotoOrganizer initialization with custom workers."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            target = Path(temp_dir) / "target"
+            source.mkdir()
+
+            organizer = PhotoOrganizer(source, target, max_workers=8)
+
+            assert organizer.max_workers == 8
+
+    def test_copy_image_move_mode(self):
+        """Test copy_image method in move mode."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            target = Path(temp_dir) / "target"
+            source.mkdir()
+            target.mkdir()
+
+            # Create a test file
+            test_file = source / "test.jpg"
+            test_file.write_text("test content")
+
+            target_file = target / "test.jpg"
+
+            organizer = PhotoOrganizer(source, target, move_files=True)
+
+            # Test move operation
+            result = organizer.copy_image(test_file, target_file)
+
+            assert result is True
+            assert not test_file.exists()  # Source should be gone
+            assert target_file.exists()  # Target should exist
+            assert organizer.stats["moved"] == 1
+
+    def test_copy_image_move_mode_dry_run(self):
+        """Test copy_image method in move mode with dry run."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            target = Path(temp_dir) / "target"
+            source.mkdir()
+
+            # Create a test file
+            test_file = source / "test.jpg"
+            test_file.write_text("test content")
+
+            target_file = target / "subdir" / "test.jpg"
+
+            organizer = PhotoOrganizer(source, target, move_files=True, dry_run=True)
+
+            # Test move operation in dry run
+            result = organizer.copy_image(test_file, target_file)
+
+            assert result is True
+            assert test_file.exists()  # Source should still exist in dry run
+            assert not target_file.exists()  # Target should not exist in dry run
+            assert organizer.stats["moved"] == 1
