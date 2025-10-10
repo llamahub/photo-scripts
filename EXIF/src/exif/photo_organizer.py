@@ -44,6 +44,7 @@ class PhotoOrganizer:
         ".jpg",
         ".jpeg",
         ".png",
+        ".gif",
         ".bmp",
         ".tif",
         ".tiff",

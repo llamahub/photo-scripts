@@ -106,6 +106,7 @@ class TestPhotoOrganizer:
         assert organizer.is_image_file(Path("test.jpg")) is True
         assert organizer.is_image_file(Path("test.JPEG")) is True
         assert organizer.is_image_file(Path("test.png")) is True
+        assert organizer.is_image_file(Path("test.gif")) is True
         assert organizer.is_image_file(Path("test.tiff")) is True
         assert organizer.is_image_file(Path("test.heic")) is True
 
