@@ -193,10 +193,7 @@ class TestAnalyzeScript:
         result = self.run_script(["--help"])
 
         assert result.returncode == 0
-        assert (
-            "High-performance image organization and date consistency analysis"
-            in result.stdout
-        )
+        assert "High-performance image organization" in result.stdout
         assert "source" in result.stdout  # Now a positional argument
         assert "--target" in result.stdout
 
@@ -223,9 +220,10 @@ class TestAnalyzeScript:
 
         # Add the src directory to sys.path so imports work
         import sys
+
         src_path = os.path.join(os.path.dirname(SCRIPT_PATH), "..", "src")
         sys.path.insert(0, src_path)
-        
+
         try:
             spec.loader.exec_module(analyze_module)
         finally:

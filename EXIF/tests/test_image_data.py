@@ -46,27 +46,47 @@ def test_get_condition():
 def test_get_month_match():
     """Test the get_month_match method for all scenarios."""
     # Test Match: Both Parent Date and File Date are 1900-01-01
-    assert ImageData.get_month_match("1900-01-01", "1900-01-01", "2024-01-25") == "Match"
-    assert ImageData.get_month_match("1900-01-01", "1900-01-01", "1900-01-01") == "Match"
-    
+    assert (
+        ImageData.get_month_match("1900-01-01", "1900-01-01", "2024-01-25") == "Match"
+    )
+    assert (
+        ImageData.get_month_match("1900-01-01", "1900-01-01", "1900-01-01") == "Match"
+    )
+
     # Test Match: File and Image match, Parent matches
-    assert ImageData.get_month_match("2024-01-15", "2024-01-20", "2024-01-25") == "Match"
-    
+    assert (
+        ImageData.get_month_match("2024-01-15", "2024-01-20", "2024-01-25") == "Match"
+    )
+
     # Test Match: File and Image match, Parent is 1900-01-01 (ignored)
-    assert ImageData.get_month_match("1900-01-01", "2024-01-20", "2024-01-25") == "Match"
-    
+    assert (
+        ImageData.get_month_match("1900-01-01", "2024-01-20", "2024-01-25") == "Match"
+    )
+
     # Test Partial Image: Image matches Parent
-    assert ImageData.get_month_match("2024-01-15", "2024-02-20", "2024-01-25") == "Partial Image"
-    
+    assert (
+        ImageData.get_month_match("2024-01-15", "2024-02-20", "2024-01-25")
+        == "Partial Image"
+    )
+
     # Test Partial File: File matches Parent
-    assert ImageData.get_month_match("2024-01-15", "2024-01-20", "2024-02-25") == "Partial File"
-    
+    assert (
+        ImageData.get_month_match("2024-01-15", "2024-01-20", "2024-02-25")
+        == "Partial File"
+    )
+
     # Test Mismatch: All different months
-    assert ImageData.get_month_match("2024-01-15", "2024-02-20", "2024-03-25") == "Mismatch"
-    
+    assert (
+        ImageData.get_month_match("2024-01-15", "2024-02-20", "2024-03-25")
+        == "Mismatch"
+    )
+
     # Test Mismatch: File and Image match but Parent doesn't (and isn't 1900-01-01)
-    assert ImageData.get_month_match("2024-03-15", "2024-01-20", "2024-01-25") == "Mismatch"
-    
+    assert (
+        ImageData.get_month_match("2024-03-15", "2024-01-20", "2024-01-25")
+        == "Mismatch"
+    )
+
     # Test with empty/invalid dates
     assert ImageData.get_month_match("", "2024-01-20", "2024-01-25") == "Match"
     assert ImageData.get_month_match("2024-01-15", "", "") == "Mismatch"
