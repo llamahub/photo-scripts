@@ -221,14 +221,24 @@ class TestAnalyzeScript:
         spec = importlib.util.spec_from_file_location("analyze", SCRIPT_PATH)
         analyze_module = importlib.util.module_from_spec(spec)
 
-        with patch("sys.path"):
+        # Add the src directory to sys.path so imports work
+        import sys
+        src_path = os.path.join(os.path.dirname(SCRIPT_PATH), "..", "src")
+        sys.path.insert(0, src_path)
+        
+        try:
             spec.loader.exec_module(analyze_module)
+        finally:
+            # Clean up sys.path
+            if src_path in sys.path:
+                sys.path.remove(src_path)
 
         csv_path = os.path.join(self.temp_dir, "test_custom.csv")
         test_results = [
             {
                 "condition_desc": "Test condition",
                 "condition_category": "Match",
+                "month_match": "Match",
                 "parent_date_norm": "2023-06-15",
                 "filename_date_norm": "2023-06-15",
                 "image_date_norm": "2023-06-15",
@@ -251,6 +261,7 @@ class TestAnalyzeScript:
         expected_headers = [
             "Condition",
             "Status",
+            "Month Match",
             "Parent Date",
             "Filename Date",
             "Image Date",
@@ -266,6 +277,7 @@ class TestAnalyzeScript:
         # Check normal result row
         assert rows[0]["Condition"] == "Test condition"
         assert rows[0]["Status"] == "Match"
+        assert rows[0]["Month Match"] == "Match"
         assert rows[0]["Source Path"] == "/test/file.jpg"
 
         # Check error result row

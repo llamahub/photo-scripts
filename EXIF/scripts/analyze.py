@@ -132,7 +132,7 @@ def save_custom_csv(csv_path, results):
         
         # Write header matching original format
         writer.writerow([
-            "Condition", "Status", "Parent Date", "Filename Date", "Image Date", 
+            "Condition", "Status", "Month Match", "Parent Date", "Filename Date", "Image Date", 
             "Source Path", "Target Path", "Target Exists", "Alt Filename Date"
         ])
         
@@ -141,13 +141,14 @@ def save_custom_csv(csv_path, results):
             if 'error' in result:
                 # Handle error cases
                 writer.writerow([
-                    "Error", "Error", "", "", "", 
+                    "Error", "Error", "", "", "", "", 
                     result['filepath'], "", "FALSE", result.get('error', '')
                 ])
             else:
                 writer.writerow([
                     result.get('condition_desc', ''),
                     result.get('condition_category', ''),
+                    result.get('month_match', ''),
                     result.get('parent_date_norm', ''),
                     result.get('filename_date_norm', ''),
                     result.get('image_date_norm', ''),

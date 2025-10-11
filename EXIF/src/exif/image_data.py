@@ -88,6 +88,52 @@ class ImageData:
         return "Else", "Mismatch"
 
     @staticmethod
+    def get_month_match(parent_date, filename_date, image_date):
+        """
+        Determine month match status based on parent, filename, and image dates.
+        
+        Args:
+            parent_date: Date from parent folder (normalized)
+            filename_date: Date from filename (normalized) 
+            image_date: Date from EXIF (normalized)
+            
+        Returns:
+            str: One of "Match", "Partial Image", "Partial File", "Mismatch"
+        """
+        def get_year_month(date_str):
+            """Extract year-month from date string, return None for 1900-01-01 or invalid dates."""
+            if not date_str or date_str.startswith("1900-01-01"):
+                return None
+            try:
+                return date_str[:7]  # YYYY-MM
+            except:
+                return None
+        
+        parent_ym = get_year_month(parent_date)
+        file_ym = get_year_month(filename_date)
+        image_ym = get_year_month(image_date)
+        
+        # Special case: If both Parent Date and File Date are 1900-01-01, count as Match
+        if parent_ym is None and file_ym is None:
+            return "Match"
+        
+        # Match: File and Image year-month match, AND (Parent matches or is 1900-01-01)
+        if file_ym and image_ym and file_ym == image_ym:
+            if parent_ym is None or parent_ym == file_ym:
+                return "Match"
+        
+        # Partial Image: Image date > 1900-01-01 and matches Parent
+        if image_ym and parent_ym and image_ym == parent_ym:
+            return "Partial Image"
+        
+        # Partial File: File date > 1900-01-01 and matches Parent  
+        if file_ym and parent_ym and file_ym == parent_ym:
+            return "Partial File"
+        
+        # Everything else is mismatch
+        return "Mismatch"
+
+    @staticmethod
     def extract_alt_filename_date(source_path, parent_date):
         parent_year = parent_date[:4]
         base = os.path.basename(source_path)
@@ -167,10 +213,42 @@ class ImageData:
                 lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
             ),
         ]
+        
+        # First try patterns that match from the beginning of filename
         for pat, func in patterns:
             m = re.match(pat, base)
             if m:
                 return cls.normalize_date(func(m))
+        
+        # If no match at beginning, try patterns that can match anywhere in filename
+        anywhere_patterns = [
+            # YYYY-MM-DD formats anywhere in filename
+            (
+                r"(\d{4})-(\d{2})-(\d{2})",
+                lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
+            ),
+            # YYYY_MM_DD formats anywhere in filename  
+            (
+                r"(\d{4})_(\d{2})_(\d{2})",
+                lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
+            ),
+            # YYYYMMDD_HHMMSS format anywhere in filename
+            (
+                r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",
+                lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}:{m.group(6)}",
+            ),
+            # YYYYMMDD format anywhere in filename
+            (
+                r"(\d{4})(\d{2})(\d{2})",
+                lambda m: f"{m.group(1)}-{m.group(2)}-{m.group(3)}",
+            ),
+        ]
+        
+        for pat, func in anywhere_patterns:
+            m = re.search(pat, base)  # Use re.search instead of re.match
+            if m:
+                return cls.normalize_date(func(m))
+        
         return "1900-01-01 00:00"
 
     @classmethod

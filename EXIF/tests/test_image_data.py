@@ -43,6 +43,35 @@ def test_get_condition():
     )
 
 
+def test_get_month_match():
+    """Test the get_month_match method for all scenarios."""
+    # Test Match: Both Parent Date and File Date are 1900-01-01
+    assert ImageData.get_month_match("1900-01-01", "1900-01-01", "2024-01-25") == "Match"
+    assert ImageData.get_month_match("1900-01-01", "1900-01-01", "1900-01-01") == "Match"
+    
+    # Test Match: File and Image match, Parent matches
+    assert ImageData.get_month_match("2024-01-15", "2024-01-20", "2024-01-25") == "Match"
+    
+    # Test Match: File and Image match, Parent is 1900-01-01 (ignored)
+    assert ImageData.get_month_match("1900-01-01", "2024-01-20", "2024-01-25") == "Match"
+    
+    # Test Partial Image: Image matches Parent
+    assert ImageData.get_month_match("2024-01-15", "2024-02-20", "2024-01-25") == "Partial Image"
+    
+    # Test Partial File: File matches Parent
+    assert ImageData.get_month_match("2024-01-15", "2024-01-20", "2024-02-25") == "Partial File"
+    
+    # Test Mismatch: All different months
+    assert ImageData.get_month_match("2024-01-15", "2024-02-20", "2024-03-25") == "Mismatch"
+    
+    # Test Mismatch: File and Image match but Parent doesn't (and isn't 1900-01-01)
+    assert ImageData.get_month_match("2024-03-15", "2024-01-20", "2024-01-25") == "Mismatch"
+    
+    # Test with empty/invalid dates
+    assert ImageData.get_month_match("", "2024-01-20", "2024-01-25") == "Match"
+    assert ImageData.get_month_match("2024-01-15", "", "") == "Mismatch"
+
+
 def test_extract_alt_filename_date():
     parent_date = "2020-01-01 00:00"
     assert (
@@ -89,6 +118,23 @@ def test_getFilenameDate():
     # Test with no date pattern
     result = ImageData.getFilenameDate("random_photo.jpg")
     assert result == "1900-01-01 00:00"
+
+    # Test new functionality: dates anywhere in filename
+    # Screenshot format
+    result = ImageData.getFilenameDate("Screenshot 2024-08-20 at 7.51.41 PM.png")
+    assert result == "2024-08-20 00:00"
+
+    # Photo with prefix
+    result = ImageData.getFilenameDate("IMG_2024-05-15_vacation.jpg")
+    assert result == "2024-05-15 00:00"
+
+    # Date in middle with description
+    result = ImageData.getFilenameDate("Photo from 2023-12-25.png")
+    assert result == "2023-12-25 00:00"
+
+    # Backup format with timestamp
+    result = ImageData.getFilenameDate("backup_20240315_143022.jpg")
+    assert result == "2024-03-15 14:30"
 
 
 def test_getParentName(tmp_path):

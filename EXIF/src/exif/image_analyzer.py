@@ -216,6 +216,11 @@ class ImageAnalyzer(ImageData):
                 parent_date_norm, filename_date_norm, image_date_norm
             )
 
+            # Get month match analysis
+            month_match = ImageData.get_month_match(
+                parent_date_norm, filename_date_norm, image_date_norm
+            )
+
             # Get image properties
             true_ext = ImageData.getTrueExt(image_path)
 
@@ -250,6 +255,7 @@ class ImageAnalyzer(ImageData):
                 "image_date_norm": image_date_norm,
                 "condition_desc": condition_desc,
                 "condition_category": condition_category,
+                "month_match": month_match,
                 "true_ext": true_ext,
                 "width": width,
                 "height": height,
