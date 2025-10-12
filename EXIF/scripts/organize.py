@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Photo Organization Script - Simple CLI interface for PhotoOrganizer
+Photo/Video Organization Script - Simple CLI interface for PhotoOrganizer
 
-Organizes photos from a source directory into a target directory with structured
-subdirectories based on photo dates obtained from EXIF metadata.
+Organizes photos or videos from a source directory into a target directory with structured
+subdirectories based on dates obtained from EXIF/metadata.
 
 Target directory structure: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
 - <decade>: Decade in format "YYYY+" (e.g., 1990+, 2000+, 2010+)  
@@ -31,7 +31,7 @@ except ImportError as e:
 def main():
     """Main entry point with argument parsing."""
     parser = argparse.ArgumentParser(
-        description="Organize photos by date using EXIF metadata",
+        description="Organize photos or videos by date using EXIF/metadata",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Target directory structure:
@@ -48,6 +48,7 @@ Examples:
   %(prog)s /path/to/photos /path/to/organized
   %(prog)s --source /path/to/photos --target /path/to/organized --dry-run
   %(prog)s /path/to/photos /path/to/organized --debug --move
+  %(prog)s /path/to/videos /path/to/organized --video --dry-run
   %(prog)s /path/to/photos /path/to/organized --workers 8 --move
   . run organize "tests/test_images .tmp/sorted" 
         """
@@ -70,6 +71,8 @@ Examples:
                        help='Move files instead of copying them (faster for large sets)')
     parser.add_argument('--workers', type=int, 
                        help='Number of parallel workers (default: auto-detect, use 1 for single-threaded)')
+    parser.add_argument('--video', action='store_true',
+                       help='Process video files instead of image files (supports mp4, mov, avi, mkv, etc.)')
     
     args = parser.parse_args()
     
@@ -89,7 +92,8 @@ Examples:
             dry_run=args.dry_run,
             debug=args.debug,
             move_files=args.move,
-            max_workers=args.workers
+            max_workers=args.workers,
+            video_mode=args.video
         )
         
         organizer.run()

@@ -55,6 +55,22 @@ class PhotoOrganizer:
         ".arw",
     }
 
+    # Supported video file extensions
+    VIDEO_EXTENSIONS = {
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".wmv",
+        ".flv",
+        ".webm",
+        ".m4v",
+        ".3gp",
+        ".mts",
+        ".m2ts",
+        ".ts",
+    }
+
     def __init__(
         self,
         source: Path,
@@ -63,6 +79,7 @@ class PhotoOrganizer:
         debug: bool = False,
         move_files: bool = False,
         max_workers: int = None,
+        video_mode: bool = False,
     ):
         """
         Initialize PhotoOrganizer.
@@ -74,6 +91,7 @@ class PhotoOrganizer:
             debug: If True, enable debug logging
             move_files: If True, move files instead of copying them
             max_workers: Number of parallel workers (default: CPU count)
+            video_mode: If True, process video files instead of image files
         """
         self.source = Path(source).resolve()
         self.target = Path(target).resolve()
@@ -81,6 +99,7 @@ class PhotoOrganizer:
         self.debug = debug
         self.move_files = move_files
         self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
+        self.video_mode = video_mode
 
         # Setup logging
         self._setup_logging()
@@ -88,6 +107,9 @@ class PhotoOrganizer:
         # Statistics tracking
         action = "moved" if move_files else "copied"
         self.stats = {"processed": 0, action: 0, "skipped": 0, "errors": 0}
+
+        # Set file type for logging
+        self.file_type = "video" if video_mode else "image"
 
     def _setup_logging(self):
         """Setup logging using COMMON ScriptLogging if available, otherwise fallback."""
@@ -107,6 +129,17 @@ class PhotoOrganizer:
     def is_image_file(self, file_path: Path) -> bool:
         """Check if file is a supported image format."""
         return file_path.suffix.lower() in self.IMAGE_EXTENSIONS
+
+    def is_video_file(self, file_path: Path) -> bool:
+        """Check if file is a supported video format."""
+        return file_path.suffix.lower() in self.VIDEO_EXTENSIONS
+
+    def is_target_file(self, file_path: Path) -> bool:
+        """Check if file matches the current mode (image or video)."""
+        if self.video_mode:
+            return self.is_video_file(file_path)
+        else:
+            return self.is_image_file(file_path)
 
     def get_decade_folder(self, year: int) -> str:
         """Get decade folder name in format 'YYYY+'."""
@@ -154,40 +187,40 @@ class PhotoOrganizer:
 
         return target_path
 
-    def find_images(self) -> List[Path]:
+    def find_files(self) -> List[Path]:
         """
-        Find all image files in source directory recursively.
+        Find all target files (images or videos) in source directory recursively.
 
         Returns:
-            List of image file paths
+            List of file paths
         """
-        images = []
+        files = []
 
         try:
             self.logger.info(f"Scanning source directory: {self.source}")
 
-            for root, dirs, files in os.walk(self.source):
+            for root, dirs, filenames in os.walk(self.source):
                 root_path = Path(root)
 
-                for file in files:
-                    file_path = root_path / file
-                    if self.is_image_file(file_path):
-                        images.append(file_path)
+                for filename in filenames:
+                    file_path = root_path / filename
+                    if self.is_target_file(file_path):
+                        files.append(file_path)
 
-                        if len(images) % 100 == 0:  # Progress indicator
-                            self.logger.debug(f"Found {len(images)} images so far...")
+                        if len(files) % 100 == 0:  # Progress indicator
+                            self.logger.debug(f"Found {len(files)} {self.file_type} files so far...")
 
         except PermissionError as e:
             self.logger.error(f"Permission denied accessing {self.source}: {e}")
         except Exception as e:
             self.logger.error(f"Unexpected error while scanning {self.source}: {e}")
 
-        self.logger.info(f"Found {len(images)} image files to process")
-        return images
+        self.logger.info(f"Found {len(files)} {self.file_type} files to process")
+        return files
 
-    def copy_image(self, source_file: Path, target_file: Path) -> bool:
+    def copy_file(self, source_file: Path, target_file: Path) -> bool:
         """
-        Copy or move image file to target location.
+        Copy or move file to target location.
 
         Args:
             source_file: Source file path
@@ -238,46 +271,46 @@ class PhotoOrganizer:
             self.stats["errors"] += 1
             return False
 
-    def process_image(self, image_file: Path):
+    def process_file(self, file_path: Path):
         """
-        Process a single image file.
+        Process a single file (image or video).
 
         Args:
-            image_file: Path to image file to process
+            file_path: Path to file to process
         """
         try:
             self.stats["processed"] += 1
 
-            # Get image date using ImageData class
-            image_date = ImageData.getImageDate(str(image_file))
+            # Get file date using ImageData class (works for both images and videos via exiftool)
+            file_date = ImageData.getImageDate(str(file_path))
 
-            if not image_date or image_date.startswith("1900"):
+            if not file_date or file_date.startswith("1900"):
                 self.logger.warning(
-                    f"No valid date found for {image_file}, using fallback date"
+                    f"No valid date found for {file_path}, using fallback date"
                 )
                 # Use file modification time as fallback
                 try:
-                    mtime = image_file.stat().st_mtime
+                    mtime = file_path.stat().st_mtime
                     fallback_date = datetime.fromtimestamp(mtime).strftime(
                         "%Y-%m-%d %H:%M"
                     )
-                    image_date = fallback_date
+                    file_date = fallback_date
                 except Exception:
-                    image_date = "1900-01-01 00:00"
+                    file_date = "1900-01-01 00:00"
 
             # Calculate target path
-            target_file = self.get_target_path(image_file, image_date)
+            target_file = self.get_target_path(file_path, file_date)
 
             # Log the mapping
-            rel_source = image_file.relative_to(self.source)
+            rel_source = file_path.relative_to(self.source)
             rel_target = target_file.relative_to(self.target)
-            self.logger.debug(f"Date: {image_date} | {rel_source} -> {rel_target}")
+            self.logger.debug(f"Date: {file_date} | {rel_source} -> {rel_target}")
 
             # Copy the file
-            self.copy_image(image_file, target_file)
+            self.copy_file(file_path, target_file)
 
         except Exception as e:
-            self.logger.error(f"Error processing {image_file}: {e}")
+            self.logger.error(f"Error processing {file_path}: {e}")
             self.stats["errors"] += 1
 
     def run(self):
@@ -285,13 +318,15 @@ class PhotoOrganizer:
         # Log header
         mode = "DRY RUN" if self.dry_run else "LIVE MODE"
         debug_status = "ENABLED" if self.debug else "DISABLED"
+        file_type_title = "videos" if self.video_mode else "photos"
 
         header = [
             "=" * 80,
-            f" [PhotoOrganizer] Organize photos by date - {mode}",
+            f" [PhotoOrganizer] Organize {file_type_title} by date - {mode}",
             "=" * 80,
             f"SOURCE: {self.source}",
             f"TARGET: {self.target}",
+            f"FILE TYPE: {self.file_type.upper()}",
             f"DRY RUN: {self.dry_run}",
             f"DEBUG: {debug_status}",
             "=" * 80,
@@ -313,50 +348,50 @@ class PhotoOrganizer:
         else:
             self.logger.info(f"Target directory (dry run): {self.target}")
 
-        # Find all images
-        images = self.find_images()
+        # Find all files
+        files = self.find_files()
 
-        if not images:
-            self.logger.info("No image files found to process")
+        if not files:
+            self.logger.info(f"No {self.file_type} files found to process")
             return
 
-        # Process each image (with parallel processing)
+        # Process each file (with parallel processing)
         operation = "move" if self.move_files else "copy"
         self.logger.info(
-            f"Starting to {operation} {len(images)} images using {self.max_workers} workers..."
+            f"Starting to {operation} {len(files)} {self.file_type} files using {self.max_workers} workers..."
         )
 
         if self.max_workers == 1:
             # Single-threaded processing
-            for i, image_file in enumerate(images, 1):
-                if i % 50 == 0 or i == len(images):  # Progress indicator
-                    self.logger.info(f"Progress: {i}/{len(images)} images processed")
-                self.process_image(image_file)
+            for i, file_path in enumerate(files, 1):
+                if i % 50 == 0 or i == len(files):  # Progress indicator
+                    self.logger.info(f"Progress: {i}/{len(files)} {self.file_type} files processed")
+                self.process_file(file_path)
         else:
             # Multi-threaded processing
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=self.max_workers
             ) as executor:
                 # Submit all tasks
-                future_to_image = {
-                    executor.submit(self.process_image, image_file): image_file
-                    for image_file in images
+                future_to_file = {
+                    executor.submit(self.process_file, file_path): file_path
+                    for file_path in files
                 }
 
                 # Process completed tasks
                 completed = 0
-                for future in concurrent.futures.as_completed(future_to_image):
+                for future in concurrent.futures.as_completed(future_to_file):
                     completed += 1
-                    if completed % 50 == 0 or completed == len(images):
+                    if completed % 50 == 0 or completed == len(files):
                         self.logger.info(
-                            f"Progress: {completed}/{len(images)} images processed"
+                            f"Progress: {completed}/{len(files)} {self.file_type} files processed"
                         )
 
                     try:
                         future.result()  # This will raise any exception that occurred
                     except Exception as e:
-                        image_file = future_to_image[future]
-                        self.logger.error(f"Error processing {image_file}: {e}")
+                        file_path = future_to_file[future]
+                        self.logger.error(f"Error processing {file_path}: {e}")
                         self.stats["errors"] += 1
 
         # Log final statistics

@@ -16,6 +16,12 @@ class ImageData:
                     "-DateTimeOriginal",
                     "-ExifIFD:DateTimeOriginal",
                     "-XMP-photoshop:DateCreated",
+                    "-CreateDate",
+                    "-ModifyDate",
+                    "-MediaCreateDate",
+                    "-MediaModifyDate",
+                    "-TrackCreateDate",
+                    "-TrackModifyDate",
                     "-FileModifyDate",
                     "-FileTypeExtension",
                     "-ImageWidth",
@@ -165,10 +171,17 @@ class ImageData:
     @classmethod
     def getImageDate(cls, filepath):
         meta = cls.get_exif(filepath)
+        # Try date fields in order of preference (for both images and videos)
         for key in [
             "DateTimeOriginal",
             "ExifIFD:DateTimeOriginal",
             "XMP-photoshop:DateCreated",
+            "CreateDate",
+            "MediaCreateDate",
+            "TrackCreateDate",
+            "ModifyDate",
+            "MediaModifyDate",
+            "TrackModifyDate",
             "FileModifyDate",
         ]:
             if key in meta and meta[key]:
