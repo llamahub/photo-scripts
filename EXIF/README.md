@@ -2,6 +2,8 @@
 
 A comprehensive Python framework for photo organization, metadata processing, and image management with EXIF data extraction capabilities.
 
+**📚 [Complete Documentation](docs/README.md)** - **EXIF tools documentation hub**
+
 ## Quick Start
 
 ```bash
@@ -9,48 +11,51 @@ A comprehensive Python framework for photo organization, metadata processing, an
 ./setenv --recreate
 source activate.sh
 
-# Run photo organization
+# Core operations
 python scripts/organize.py /path/to/photos /path/to/organized --dry-run
+python scripts/generate.py test_data.csv /path/to/output --sample 10
+python scripts/select.py /path/to/photos /path/to/samples --files 50
+python scripts/analyze.py /path/to/photos --output analysis.csv
+python scripts/set_image_dates.py dates.csv --dry-run
 
-# Generate test images
-python scripts/generate.py test_data.csv /path/to/output
-
-# Select random samples
-python scripts/select.py /path/to/photos /path/to/samples --files 10
+# Using invoke (recommended)
+inv run --script organize --args '/source /target --dry-run'
+inv scripts  # List all available scripts
 ```
+
+## Available Tools
+
+| Script | Purpose | Key Features |
+|--------|---------|--------------|
+| **`organize.py`** | Photo organization by date/format | Dry-run mode, EXIF date extraction, format-based folders |
+| **`generate.py`** | Test image generation | CSV-driven, multiple formats, EXIF metadata injection |
+| **`select.py`** | Random photo sampling | Multi-stage selection, sidecar file handling |
+| **`analyze.py`** | Photo metadata analysis | Comprehensive EXIF data, CSV export, "Set Date" column |
+| **`set_image_dates.py`** | Batch date correction | CSV-based, automatic extension fixing, dry-run support |
+
+## Documentation
+
+For complete documentation, see:
+
+- **[EXIF Documentation](docs/README.md)** - Complete tools documentation
+- **[Workflow Guide](docs/guides/WORKFLOW_GUIDE.md)** - End-to-end usage workflows
+- **[Testing Strategy](docs/TESTING_STRATEGY.md)** - Comprehensive testing approach
+- **[Performance Guide](docs/guides/PERFORMANCE_OPTIMIZATION_GUIDE.md)** - Optimization strategies
+- **[Setup Guide](../docs/setup/SETUP_GUIDE.md)** - Installation instructions
 
 ## System Requirements
 
 ### Required Dependencies
-- **Python 3.8+**: Core runtime
-- **ExifTool**: EXIF metadata extraction (critical for photo date detection)
+- **Python 3.8+**: Core runtime environment
+- **ExifTool**: EXIF metadata extraction (critical for photo processing)
 
-### Automated Setup
-Use the project's system setup script to install all dependencies:
-
+### Quick Setup
 ```bash
-# From the project root directory
-../setup-system-deps.sh     # Auto-detects OS and installs dependencies
+# From project root - installs all dependencies automatically
+../setup-system-deps.sh
 ```
 
-**Manual Installation (if needed):**
-```bash
-# Ubuntu/Debian
-sudo apt install python3-venv libimage-exiftool-perl
-
-# macOS (requires Homebrew)
-brew install python exiftool
-
-# Windows
-# Download Python from: https://www.python.org/downloads/
-# Download ExifTool from: https://exiftool.org/
-```
-
-### Python Dependencies
-Automatically installed via `./setenv`:
-- PIL/Pillow: Image processing
-- pytest: Testing framework
-- invoke: Task runner
+For detailed setup instructions, see [Setup Guide](../docs/setup/SETUP_GUIDE.md).
 
 ## Architecture
 

@@ -26,17 +26,23 @@ source activate.sh          # Activate environment
 inv r -n organize -a '--help' # Run scripts with shortcut syntax
 ```
 
-**📖 For detailed setup instructions, see [SETUP_GUIDE.md](SETUP_GUIDE.md)**
+**📖 For complete documentation, see [Documentation Overview](docs/README.md)**
 
 ## Documentation Structure
 
-- **[.vscode/ai-assistant-prompt.md](.vscode/ai-assistant-prompt.md)** - **Primary AI assistant guide** with patterns and templates
-- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - **Complete setup instructions and methods**
-- **[SETUP_TROUBLESHOOTING.md](SETUP_TROUBLESHOOTING.md)** - **System setup and dependency troubleshooting**
-- **[DEVELOPMENT_HISTORY.md](DEVELOPMENT_HISTORY.md)** - Project context and architectural decisions
-- **[COMMON/ARCHITECTURE.md](COMMON/ARCHITECTURE.md)** - Technical framework details
-- **[EXIF/scripts/SAMPLE_EVOLUTION.md](EXIF/scripts/SAMPLE_EVOLUTION.md)** - Script development case study
-- **[photo-scripts.code-workspace](photo-scripts.code-workspace)** - VS Code workspace configuration
+**📚 [Complete Documentation](docs/README.md)** - **Main documentation hub with organized navigation**
+
+### Quick Access
+- **[Setup Guide](docs/setup/SETUP_GUIDE.md)** - **Complete installation instructions**
+- **[COMMON Framework](COMMON/docs/README.md)** - **Shared infrastructure documentation**
+- **[EXIF Tools](EXIF/docs/README.md)** - **Photo processing tools documentation**
+- **[Development History](docs/development/DEVELOPMENT_HISTORY.md)** - **Project context and decisions**
+
+### Developer Resources
+- **[AI Assistant Guide](.vscode/ai-assistant-prompt.md)** - Primary development patterns and templates
+- **[Framework Architecture](COMMON/docs/ARCHITECTURE.md)** - Technical implementation details
+- **[Testing Strategy](EXIF/docs/TESTING_STRATEGY.md)** - Comprehensive testing approach
+- **[Troubleshooting](docs/setup/SETUP_TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## System Requirements
 
@@ -59,7 +65,7 @@ Use the provided setup script to install all system dependencies:
 
 **Dev Container Users**: Dependencies install automatically - no manual setup needed!
 
-**Having Issues?** See [SETUP_TROUBLESHOOTING.md](SETUP_TROUBLESHOOTING.md) for common solutions.
+**Having Issues?** See [SETUP_TROUBLESHOOTING.md](docs/setup/SETUP_TROUBLESHOOTING.md) for common solutions.
 
 ## Core Framework
 

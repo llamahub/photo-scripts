@@ -1,73 +1,68 @@
-# Common Tasks System
+# COMMON Framework
 
-This directory contains shared invoke tasks for all projects in the monorepo.
+Shared infrastructure framework providing consistent patterns, logging, task management, and script execution across all projects in the photo-scripts monorepo.
 
-## Files
+**📚 [Complete Documentation](docs/README.md)** - **Framework documentation hub**
 
-- `common_tasks.py` - Contains all the common task implementations
-- `tasks.py` - Simple wrapper that imports all common tasks (for projects that don't need customization)
+## Core Components
 
-## Usage
+- **ScriptLogging**: Consistent logging with dual output (console + file)
+- **Task System**: Shared invoke tasks with project extensions  
+- **Script Runner**: Universal script discovery and execution
+- **Configuration**: Environment-based configuration management
 
-### For projects that don't need custom tasks:
-Copy `tasks.py` to your project directory. It will automatically import all common tasks.
+## Quick Start
 
-### For projects that need custom tasks:
-Create a custom `tasks.py` in your project directory like this:
-
+### Using COMMON in Scripts
 ```python
-"""Project-specific invoke tasks."""
+# Standard COMMON import pattern (ALWAYS use this)
+common_src_path = Path(__file__).parent.parent.parent / 'COMMON' / 'src'
+sys.path.insert(0, str(common_src_path))
 
-import sys
-from pathlib import Path
-from invoke import task
-
-# Add COMMON directory to path and import common tasks
-common_dir = Path(__file__).parent.parent / "COMMON"
-sys.path.insert(0, str(common_dir))
-
-# Import all common functionality from common_tasks module
-from common_tasks import (
-    get_venv_python, get_venv_executable, ensure_venv,
-    setup, clean, lint, format, test, build, run, install, 
-    deps, shell, scripts, status
-)
-
-# Add your project-specific tasks here
-@task
-def my_custom_task(ctx):
-    """A custom task for this project."""
-    print("This is a custom task!")
-
-# Override common tasks if needed
-@task
-def run(ctx, script=None, args="", env="dev"):
-    """Override the common run task with project-specific behavior."""
-    # Your custom implementation here
-    pass
+try:
+    from common.logging import ScriptLogging
+    logger = ScriptLogging.get_script_logger(name="my_script", debug=True)
+except ImportError:
+    # Graceful fallback
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("my_script")
 ```
 
-## Available Tasks
+### Using Shared Tasks
+```bash
+# Standard task usage
+inv setup              # Setup environment
+inv test               # Run tests with coverage  
+inv run --script name  # Run scripts
+inv scripts           # List available scripts
+```
 
-All projects get these standard tasks:
+## Framework Features
 
-- `setup` - Setup the project environment
-- `clean` - Clean build artifacts  
-- `lint` - Run linting tools (black, flake8, mypy)
-- `format` - Format code with black
-- `test` - Run tests with pytest
-- `build` - Build the project (clean, lint, test)
-- `run` - Run scripts or main project
-- `scripts` - List available scripts
-- `install` - Install the project
-- `deps` - Update dependencies
-- `shell` - Start shell with virtual environment
-- `status` - Show project and environment status
+### Logging System
+- **Dual Output**: User-friendly console + detailed file logging
+- **Automatic Setup**: Creates `.log/` directories automatically
+- **Timestamped Files**: Prevents conflicts with unique timestamps
+- **Debug Support**: Configurable verbosity levels
+- **Fallback Safety**: Works even when COMMON unavailable
 
-## Common Functions
+### Task Management  
+- **Universal Tasks**: `setup`, `test`, `clean`, `run`, `scripts`, etc.
+- **Project Extension**: Easy addition of project-specific tasks
+- **Script Discovery**: Automatic discovery of scripts in `scripts/` folders
+- **Argument Passthrough**: Clean argument handling to target scripts
 
-These utility functions are available for custom tasks:
+### Script Execution
+Three execution methods for maximum flexibility:
+1. **Invoke**: `inv run --script name --args 'arguments'`
+2. **Direct**: `python ../COMMON/scripts/run.py name arguments`
+3. **Local**: `python scripts/name.py arguments`
 
-- `get_venv_python()` - Get path to virtual environment Python
-- `get_venv_executable(tool_name)` - Get path to tool in virtual environment  
-- `ensure_venv(ctx)` - Ensure virtual environment exists
+## Documentation
+
+For complete framework documentation, see:
+
+- **[Framework Documentation](docs/README.md)** - Complete COMMON framework guide
+- **[Technical Architecture](docs/ARCHITECTURE.md)** - Detailed implementation
+- **[Main Project Docs](../docs/README.md)** - Project-wide documentation
