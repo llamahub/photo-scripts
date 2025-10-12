@@ -172,7 +172,7 @@ class TestImageDateSetter:
         result = setter.set_image_date(test_file, "2023:08:20 15:45:30", dry_run=False)
 
         assert result is True
-        mock_run.assert_called_once()
+        assert mock_run.call_count == 2  # One call to check file type, one to set date
 
     @mock.patch("subprocess.run")
     def test_set_image_date_failure(self, mock_run, temp_dirs):
@@ -333,7 +333,7 @@ class TestSetImageDatesScript:
         """Test script in dry run mode."""
         target_dir, csv_file = temp_setup
 
-        result = self.run_script([str(target_dir), str(csv_file), "--dry-run"])
+        result = self.run_script([str(csv_file), "--target", str(target_dir), "--dry-run"])
 
         assert result.returncode == 0
         assert "DRY RUN completed" in result.stderr
@@ -344,8 +344,9 @@ class TestSetImageDatesScript:
 
         result = self.run_script(
             [
-                str(target_dir),
                 str(csv_file),
+                "--target",
+                str(target_dir),
                 "--file-col",
                 "File Path",
                 "--date-col",
@@ -366,7 +367,7 @@ class TestSetImageDatesScript:
         mock_validate.return_value = True
 
         result = self.run_script(
-            [str(target_dir), str(csv_file), "--debug", "--dry-run"]
+            [str(csv_file), "--target", str(target_dir), "--debug", "--dry-run"]
         )
 
         assert result.returncode == 0
@@ -388,11 +389,12 @@ class TestSetImageDatesScript:
         mock_validate.return_value = True
         mock_argv.__getitem__.side_effect = lambda i: [
             "set_image_dates.py",
-            str(target_dir),
             str(csv_file),
+            "--target",
+            str(target_dir),
             "--dry-run",
         ][i]
-        mock_argv.__len__.return_value = 4
+        mock_argv.__len__.return_value = 5
 
         result = main()
 
@@ -403,10 +405,9 @@ class TestSetImageDatesScript:
         """Test main function error handling."""
         mock_argv.__getitem__.side_effect = lambda i: [
             "set_image_dates.py",
-            "/nonexistent",
             "/nonexistent.csv",
         ][i]
-        mock_argv.__len__.return_value = 3
+        mock_argv.__len__.return_value = 2
 
         result = main()
 

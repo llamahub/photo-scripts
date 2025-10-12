@@ -47,7 +47,7 @@ class TestOrganizeScript:
         )
 
         assert result.returncode == 0
-        assert "Organize photos by date using EXIF metadata" in result.stdout
+        assert "Organize photos or videos by date using EXIF/metadata" in result.stdout
         assert "Target directory structure:" in result.stdout
         assert "--dry-run" in result.stdout
         assert "--debug" in result.stdout
