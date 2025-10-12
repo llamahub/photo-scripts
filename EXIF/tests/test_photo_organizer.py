@@ -174,17 +174,17 @@ class TestPhotoOrganizer:
         organizer = PhotoOrganizer(source_dir, target_dir)
 
         found_images = organizer.find_files()
-        
+
         assert len(found_images) == 5
-        
+
         # Check that all found files are valid image files
         for image in found_images:
             assert image.suffix.lower() in organizer.IMAGE_EXTENSIONS
             assert image.exists()
 
         # Should include JPG and PNG files
-        jpg_files = [f for f in found_images if f.suffix.lower() == '.jpg']
-        png_files = [f for f in found_images if f.suffix.lower() == '.png']
+        jpg_files = [f for f in found_images if f.suffix.lower() == ".jpg"]
+        png_files = [f for f in found_images if f.suffix.lower() == ".png"]
         assert len(jpg_files) == 2  # test1.jpg, test2.jpg
         assert len(png_files) == 1  # test.png
 
@@ -192,14 +192,14 @@ class TestPhotoOrganizer:
         """Test copy file method in dry run mode."""
         source_dir, target_dir = temp_dirs
         organizer = PhotoOrganizer(source_dir, target_dir, dry_run=True)
-        
+
         source_file = source_dir / "test.jpg"
         source_file.write_text("fake image content")
-        
+
         target_file = target_dir / "target.jpg"
-        
+
         result = organizer.copy_file(source_file, target_file)
-        
+
         # Should return True (success) but not actually copy the file
         assert result is True
         assert not target_file.exists()  # File should not actually be copied in dry run
@@ -208,14 +208,14 @@ class TestPhotoOrganizer:
         """Test copy file method with actual file copying."""
         source_dir, target_dir = temp_dirs
         organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False)
-        
+
         source_file = source_dir / "test.jpg"
         source_file.write_text("fake image content")
-        
+
         target_file = target_dir / "target.jpg"
-        
+
         result = organizer.copy_file(source_file, target_file)
-        
+
         # Should return True and actually copy the file
         assert result is True
         assert target_file.exists()
@@ -225,35 +225,35 @@ class TestPhotoOrganizer:
         """Test copy file method when target file already exists."""
         source_dir, target_dir = temp_dirs
         organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False)
-        
+
         source_file = source_dir / "test.jpg"
         source_file.write_text("fake image content")
-        
+
         target_file = target_dir / "target.jpg"
         target_file.write_text("existing content")
-        
+
         result = organizer.copy_file(source_file, target_file)
-        
+
         # Should handle existing file (implementation specific behavior)
         # For now, let's assume it skips and returns False
         assert result is False or result is True  # Allow either behavior
         # Original content should be preserved or overwritten based on implementation
 
-    @mock.patch('exif.image_data.ImageData.getImageDate')
+    @mock.patch("exif.image_data.ImageData.getImageDate")
     def test_process_file_with_date(self, mock_get_date, temp_dirs):
         """Test process file with valid date."""
         source_dir, target_dir = temp_dirs
         organizer = PhotoOrganizer(source_dir, target_dir, dry_run=True)
-        
+
         # Mock image date
         mock_get_date.return_value = "2023-08-20 15:45:30"
-        
+
         image_file = source_dir / "test.jpg"
         image_file.write_text("fake image content")
-        
+
         # Should not raise an exception
         organizer.process_file(image_file)
-        
+
         # Verify the mock was called
         mock_get_date.assert_called_once_with(str(image_file))
 
@@ -293,21 +293,21 @@ class TestPhotoOrganizer:
         stats["processed"] = 100
         assert organizer.stats["processed"] == 5
 
-    @mock.patch('exif.image_data.ImageData.getImageDate')
+    @mock.patch("exif.image_data.ImageData.getImageDate")
     def test_process_file_no_date(self, mock_get_date, temp_dirs):
         """Test process file with no date available."""
         source_dir, target_dir = temp_dirs
         organizer = PhotoOrganizer(source_dir, target_dir, dry_run=True)
-        
+
         # Mock no date available
         mock_get_date.return_value = "1900-01-01 00:00"
-        
+
         image_file = source_dir / "test.jpg"
         image_file.write_text("fake image content")
-        
+
         # Should not raise an exception even with no date
         organizer.process_file(image_file)
-        
+
         # Verify the mock was called
         mock_get_date.assert_called_once_with(str(image_file))
 
@@ -381,18 +381,20 @@ class TestPhotoOrganizer:
             target_dir = temp_path / "target"
             source_dir.mkdir()
             target_dir.mkdir()
-            
-            organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False, move_files=True)
-            
+
+            organizer = PhotoOrganizer(
+                source_dir, target_dir, dry_run=False, move_files=True
+            )
+
             # Create test file
             test_file = source_dir / "test.jpg"
             test_file.write_text("test content")
-            
+
             target_file = target_dir / "moved_test.jpg"
-            
+
             # Test moving file
             result = organizer.copy_file(test_file, target_file)
-            
+
             assert result is True
             assert target_file.exists()
             assert not test_file.exists()  # Original should be gone after move
@@ -406,14 +408,16 @@ class TestPhotoOrganizer:
             target_dir = temp_path / "target"
             source_dir.mkdir()
             target_dir.mkdir()
-            
-            organizer = PhotoOrganizer(source_dir, target_dir, dry_run=True, move_files=True)
-            
+
+            organizer = PhotoOrganizer(
+                source_dir, target_dir, dry_run=True, move_files=True
+            )
+
             # Create test file
             test_file = source_dir / "test.jpg"
             test_file.write_text("test content")
-            
+
             target_file = target_dir / "moved_test.jpg"
-            
+
             # Test dry run mode - should return True but not actually move
             result = organizer.copy_file(test_file, target_file)

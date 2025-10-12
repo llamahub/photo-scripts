@@ -208,7 +208,9 @@ class PhotoOrganizer:
                         files.append(file_path)
 
                         if len(files) % 100 == 0:  # Progress indicator
-                            self.logger.debug(f"Found {len(files)} {self.file_type} files so far...")
+                            self.logger.debug(
+                                f"Found {len(files)} {self.file_type} files so far..."
+                            )
 
         except PermissionError as e:
             self.logger.error(f"Permission denied accessing {self.source}: {e}")
@@ -365,7 +367,9 @@ class PhotoOrganizer:
             # Single-threaded processing
             for i, file_path in enumerate(files, 1):
                 if i % 50 == 0 or i == len(files):  # Progress indicator
-                    self.logger.info(f"Progress: {i}/{len(files)} {self.file_type} files processed")
+                    self.logger.info(
+                        f"Progress: {i}/{len(files)} {self.file_type} files processed"
+                    )
                 self.process_file(file_path)
         else:
             # Multi-threaded processing

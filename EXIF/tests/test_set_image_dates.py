@@ -333,7 +333,9 @@ class TestSetImageDatesScript:
         """Test script in dry run mode."""
         target_dir, csv_file = temp_setup
 
-        result = self.run_script([str(csv_file), "--target", str(target_dir), "--dry-run"])
+        result = self.run_script(
+            [str(csv_file), "--target", str(target_dir), "--dry-run"]
+        )
 
         assert result.returncode == 0
         assert "DRY RUN completed" in result.stderr
