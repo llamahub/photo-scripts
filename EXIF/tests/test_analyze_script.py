@@ -267,6 +267,7 @@ class TestAnalyzeScript:
             "Target Path",
             "Target Exists",
             "Alt Filename Date",
+            "Set Date",
         ]
 
         assert headers == expected_headers
