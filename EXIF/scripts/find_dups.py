@@ -46,20 +46,49 @@ def parse_arguments():
         description="Find duplicate images/videos between source and target directories",
         epilog="""
 Examples:
+  %(prog)s /path/to/source /path/to/target
   %(prog)s --source /path/to/source --target /path/to/target
-  %(prog)s --source /path/to/source --target /path/to/target --output results.csv
+  %(prog)s /path/to/source /path/to/target --output results.csv
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    parser.add_argument('--source', required=True,
+    parser.add_argument('source', nargs='?',
                        help='Source directory to scan for images/videos')
-    parser.add_argument('--target', required=True,
+    parser.add_argument('target', nargs='?',
+                       help='Target directory to search for duplicates')
+    parser.add_argument('--source', dest='source_named',
+                       help='Source directory to scan for images/videos')
+    parser.add_argument('--target', dest='target_named',
                        help='Target directory to search for duplicates')
     parser.add_argument('--output',
                        help='Output CSV file (default: .log/find_dups_TIMESTAMP.csv)')
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Resolve source: positional takes precedence over named
+    if args.source:
+        final_source = args.source
+    elif args.source_named:
+        final_source = args.source_named
+    else:
+        parser.error("Source directory is required (provide as positional argument or --source)")
+    
+    # Resolve target: positional takes precedence over named
+    if args.target:
+        final_target = args.target
+    elif args.target_named:
+        final_target = args.target_named
+    else:
+        parser.error("Target directory is required (provide as positional argument or --target)")
+    
+    # Create a new namespace with resolved values
+    final_args = argparse.Namespace()
+    final_args.source = final_source
+    final_args.target = final_target
+    final_args.output = args.output
+    
+    return final_args
 
 
 def setup_logging(debug=False):
