@@ -258,6 +258,9 @@ class PhotoOrganizer:
                 action_key = "moved" if self.move_files else "copied"
                 self.stats[action_key] += 1
 
+            # Handle XMP sidecar file if it exists (works in both dry-run and real modes)
+            self._handle_xmp_sidecar(source_file, target_file)
+
             operation = "move" if self.move_files else "copy"
             action = (
                 f"Would {operation}"
@@ -272,6 +275,82 @@ class PhotoOrganizer:
             self.logger.error(f"Error {operation} {source_file} to {target_file}: {e}")
             self.stats["errors"] += 1
             return False
+
+    def _handle_xmp_sidecar(self, source_file: Path, target_file: Path) -> None:
+        """
+        Handle XMP sidecar file if it exists alongside the image or video file.
+
+        Args:
+            source_file: Original image/video file path
+            target_file: Target image/video file path
+        """
+        # Look for XMP sidecar file
+        # For images: image.jpg -> image.xmp
+        # For videos: video.mp4 -> video.mp4.xmp
+        if self.video_mode:
+            # Videos: XMP file keeps the full video filename + .xmp
+            source_xmp = source_file.with_suffix(source_file.suffix + ".xmp")
+        else:
+            # Images: XMP file replaces image extension with .xmp
+            source_xmp = source_file.with_suffix(".xmp")
+
+        if source_xmp.exists():
+            # Create corresponding target XMP path
+            if self.video_mode:
+                target_xmp = target_file.with_suffix(target_file.suffix + ".xmp")
+            else:
+                target_xmp = target_file.with_suffix(".xmp")
+
+            try:
+                if not self.dry_run:
+                    # Check if target XMP already exists
+                    if target_xmp.exists():
+                        self.logger.warning(
+                            f"Target XMP file already exists, skipping: {target_xmp}"
+                        )
+                        return
+
+                    # Move or copy the XMP file
+                    if self.move_files:
+                        shutil.move(str(source_xmp), str(target_xmp))
+                        action = "Moved"
+                        if "xmp_moved" not in self.stats:
+                            self.stats["xmp_moved"] = 0
+                        self.stats["xmp_moved"] += 1
+                    else:
+                        shutil.copy2(source_xmp, target_xmp)
+                        action = "Copied"
+                        if "xmp_copied" not in self.stats:
+                            self.stats["xmp_copied"] = 0
+                        self.stats["xmp_copied"] += 1
+
+                    file_type = "video" if self.video_mode else "image"
+                    self.logger.debug(
+                        f"{action} {file_type} XMP: {source_xmp} -> {target_xmp}"
+                    )
+                else:
+                    # Dry run
+                    operation = "move" if self.move_files else "copy"
+                    file_type = "video" if self.video_mode else "image"
+                    self.logger.debug(
+                        f"Would {operation} {file_type} XMP: {source_xmp} -> {target_xmp}"
+                    )
+
+                    if "xmp_moved" not in self.stats:
+                        self.stats["xmp_moved"] = 0
+                        self.stats["xmp_copied"] = 0
+
+                    if self.move_files:
+                        self.stats["xmp_moved"] += 1
+                    else:
+                        self.stats["xmp_copied"] += 1
+
+            except Exception as e:
+                operation = "moving" if self.move_files else "copying"
+                self.logger.error(
+                    f"Error {operation} XMP file {source_xmp} to {target_xmp}: {e}"
+                )
+                self.stats["errors"] += 1
 
     def process_file(self, file_path: Path):
         """
@@ -402,12 +481,18 @@ class PhotoOrganizer:
         operation = "moved" if self.move_files else "copied"
         action_count = self.stats.get("moved", 0) + self.stats.get("copied", 0)
 
+        # Include XMP statistics
+        xmp_action_count = self.stats.get("xmp_moved", 0) + self.stats.get(
+            "xmp_copied", 0
+        )
+
         summary = [
             "=" * 80,
             " ORGANIZATION COMPLETE",
             "=" * 80,
             f"Total files processed: {self.stats['processed']}",
             f"Files {operation}: {action_count}",
+            f"XMP files {operation}: {xmp_action_count}",
             f"Files skipped: {self.stats['skipped']}",
             f"Errors encountered: {self.stats['errors']}",
         ]
