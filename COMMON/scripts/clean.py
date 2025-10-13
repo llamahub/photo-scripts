@@ -35,6 +35,7 @@ class DirectoryCleaner:
         self.stats = {
             'mac_files_removed': 0,
             'log_files_removed': 0,
+            'thumb_files_removed': 0,
             'empty_dirs_removed': 0,
             'errors': 0
         }
@@ -96,6 +97,41 @@ class DirectoryCleaner:
                 self.logger.error(f"Failed to remove {file_path}: {e}")
                 self.stats['errors'] += 1
     
+    def clean_thumb_files(self, dry_run: bool = False) -> None:
+        """Remove thumbnail files (Thumbs.db, thumbs.db, .thumbnails, etc)."""
+        self.logger.info("Scanning for thumbnail files...")
+        
+        # Common thumbnail file patterns
+        thumb_patterns = [
+            '**/Thumbs.db',
+            '**/thumbs.db',
+            '**/THUMBS.DB',
+            '**/.thumbnails/**',
+            '**/Desktop.ini',
+            '**/desktop.ini'
+        ]
+        
+        thumb_files = []
+        for pattern in thumb_patterns:
+            thumb_files.extend(list(self.target_path.glob(pattern)))
+        
+        # Remove duplicates and filter out directories
+        thumb_files = list(set([f for f in thumb_files if f.is_file()]))
+        
+        self.logger.info(f"Found {len(thumb_files)} thumbnail files")
+        
+        for file_path in thumb_files:
+            try:
+                if dry_run:
+                    self.logger.info(f"Would remove: {file_path}")
+                else:
+                    file_path.unlink()
+                    self.logger.debug(f"Removed thumbnail file: {file_path}")
+                self.stats['thumb_files_removed'] += 1
+            except Exception as e:
+                self.logger.error(f"Failed to remove {file_path}: {e}")
+                self.stats['errors'] += 1
+    
     def clean_empty_directories(self, dry_run: bool = False) -> None:
         """Remove empty directories (bottom-up to handle nested empty dirs)."""
         self.logger.info("Scanning for empty directories...")
@@ -132,7 +168,12 @@ class DirectoryCleaner:
         self.logger.info("=" * 50)
         self.logger.info(f"Apple files removed: {self.stats['mac_files_removed']}")
         self.logger.info(f"Log files removed: {self.stats['log_files_removed']}")
-        self.logger.info(f"Empty directories removed: {self.stats['empty_dirs_removed']}")
+        self.logger.info(
+            f"Thumbnail files removed: {self.stats['thumb_files_removed']}"
+        )
+        self.logger.info(
+            f"Empty directories removed: {self.stats['empty_dirs_removed']}"
+        )
         if self.stats['errors'] > 0:
             self.logger.warning(f"Errors encountered: {self.stats['errors']}")
         self.logger.info("=" * 50)
@@ -147,7 +188,8 @@ def main():
 Examples:
   %(prog)s /path/to/folder --mac --empty    # Clean Apple files and empty dirs
   %(prog)s /path/to/folder --log            # Clean only log files
-  %(prog)s /path/to/folder --mac --log --empty --dry-run  # Preview all cleaning
+  %(prog)s /path/to/folder --thumbs         # Clean thumbnail files
+  %(prog)s /path/to/folder --mac --thumbs --empty --dry-run  # Preview all cleaning
         """
     )
     
@@ -173,6 +215,12 @@ Examples:
         '--log',
         action='store_true',
         help='Remove .log files'
+    )
+    
+    parser.add_argument(
+        '--thumbs',
+        action='store_true',
+        help='Remove thumbnail files (Thumbs.db, Desktop.ini, etc)'
     )
     
     parser.add_argument(
@@ -213,8 +261,10 @@ Examples:
         return 1
     
     # Check if any cleaning options were specified
-    if not any([args.mac, args.empty, args.log]):
-        logger.error("No cleaning options specified. Use --mac, --empty, and/or --log")
+    if not any([args.mac, args.empty, args.log, args.thumbs]):
+        logger.error(
+            "No cleaning options specified. Use --mac, --empty, --log, and/or --thumbs"
+        )
         logger.info("Use --help for usage information")
         return 1
     
@@ -234,6 +284,9 @@ Examples:
         
         if args.log:
             cleaner.clean_log_files(dry_run=args.dry_run)
+        
+        if args.thumbs:
+            cleaner.clean_thumb_files(dry_run=args.dry_run)
         
         if args.empty:
             cleaner.clean_empty_directories(dry_run=args.dry_run)
