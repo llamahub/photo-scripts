@@ -88,6 +88,12 @@ def sample_demo(ctx, count=5):
         print(f"Demo completed. Temporary files in: {temp_path}")
         print("Note: Temporary directory will persist for debugging")
 
+# Shortcut alias for the run task (commonly used pattern)
+@task(name="r")  
+def r_shortcut(ctx, n=None, a=""):
+    """Shortcut for run task - 'inv r -n script -a args'."""
+    run(ctx, script=n, args=a)
+
 # Example of how to override a common task:
 # @task
 # def custom_run(ctx, script=None, args="", env="dev"):
