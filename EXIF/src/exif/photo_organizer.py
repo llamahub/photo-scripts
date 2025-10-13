@@ -21,7 +21,7 @@ from typing import List, Optional
 
 from .image_data import ImageData
 
-# Import COMMON logging with fallback
+# Import COMMON modules with fallback
 try:
     import sys
     from pathlib import Path
@@ -29,11 +29,11 @@ try:
     common_src_path = Path(__file__).parent.parent.parent.parent / "COMMON" / "src"
     sys.path.insert(0, str(common_src_path))
     from common.logging import ScriptLogging
+    from common.file_manager import FileManager
 except ImportError:
-    # Fallback for when COMMON logging is not available
-    import logging
-
+    # Fallback for when COMMON modules are not available
     ScriptLogging = None
+    FileManager = None
 
 
 class PhotoOrganizer:
@@ -66,10 +66,26 @@ class PhotoOrganizer:
         ".webm",
         ".m4v",
         ".3gp",
+        ".mpg",
+        ".mpeg",
         ".mts",
         ".m2ts",
         ".ts",
     }
+
+    @classmethod
+    def get_image_extensions(cls):
+        """Get set of supported image file extensions."""
+        if FileManager:
+            return FileManager.get_image_extensions()
+        return cls.IMAGE_EXTENSIONS.copy()
+
+    @classmethod
+    def get_video_extensions(cls):
+        """Get set of supported video file extensions."""
+        if FileManager:
+            return FileManager.get_video_extensions()
+        return cls.VIDEO_EXTENSIONS.copy()
 
     def __init__(
         self,
@@ -128,10 +144,14 @@ class PhotoOrganizer:
 
     def is_image_file(self, file_path: Path) -> bool:
         """Check if file is a supported image format."""
+        if FileManager:
+            return FileManager.is_image_file(file_path)
         return file_path.suffix.lower() in self.IMAGE_EXTENSIONS
 
     def is_video_file(self, file_path: Path) -> bool:
         """Check if file is a supported video format."""
+        if FileManager:
+            return FileManager.is_video_file(file_path)
         return file_path.suffix.lower() in self.VIDEO_EXTENSIONS
 
     def is_target_file(self, file_path: Path) -> bool:

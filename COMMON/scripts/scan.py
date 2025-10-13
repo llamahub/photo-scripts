@@ -18,19 +18,11 @@ sys.path.insert(0, str(common_src_path))
 
 try:
     from common.logging import ScriptLogging
+    from common.file_manager import FileManager
 except ImportError:
     import logging
     ScriptLogging = None
-
-
-IMAGE_EXTS = {
-    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp',
-    '.heic', '.raw'
-}
-VIDEO_EXTS = {
-    '.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm',
-    '.mts', '.m2ts', '.3gp'
-}
+    FileManager = None
 
   
 class ScanAnalyzer:
@@ -48,13 +40,29 @@ class ScanAnalyzer:
         }
 
     def classify_file(self, ext: str) -> str:
-        ext = ext.lower()
-        if ext in IMAGE_EXTS:
-            return 'image'
-        elif ext in VIDEO_EXTS:
-            return 'video'
+        """Classify file extension as image, video, or other."""
+        if FileManager:
+            # Use FileManager if available
+            dummy_path = Path(f"dummy{ext.lower()}")
+            return FileManager.classify_file(dummy_path)
         else:
-            return 'other'
+            # Fallback classification
+            ext = ext.lower()
+            image_exts = {
+                '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
+                '.webp', '.heic', '.raw'
+            }
+            video_exts = {
+                '.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv',
+                '.webm', '.mts', '.m2ts', '.3gp', '.mpg', '.mpeg'
+            }
+            
+            if ext in image_exts:
+                return 'image'
+            elif ext in video_exts:
+                return 'video'
+            else:
+                return 'other'
 
     def scan(self, detail: bool = False):
         """Scan directory tree and count files by type."""

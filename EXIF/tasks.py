@@ -12,8 +12,9 @@ sys.path.insert(0, str(common_dir))
 from common_tasks import (
     get_venv_python, get_venv_executable, ensure_venv, task_header,
     setup, clean, lint, format, test, build, run, install,
-    deps, shell, scripts, status, gtest, temp_status, temp_clean
-)# This file inherits all tasks from COMMON/common_tasks.py
+    deps, shell, scripts, status, gtest, temp_status, temp_clean,
+    log_archive
+)  # This file inherits all tasks from COMMON/common_tasks.py
 # You can add project-specific tasks below or override common tasks
 
 @task

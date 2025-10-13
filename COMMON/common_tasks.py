@@ -3,6 +3,9 @@
 import os
 import sys
 import time
+import zipfile
+import shutil
+from datetime import datetime
 from pathlib import Path
 from invoke import task, Context
 
@@ -867,3 +870,107 @@ def temp_clean(ctx, max_age_hours=None, dry_run=False):
         print("Centralized temp management not available.")
         print("Use 'inv clean' for legacy temporary directory cleanup.")
         return 0
+
+
+@task
+def log_archive(ctx, all_projects=False):
+    """Archive all files from .log directories to compressed archives.
+    
+    Archives all files from the current project's .log directory into
+    a timestamped zip file in .log.archive directory. Removes archived files
+    from the .log directory.
+    
+    Args:
+        all_projects: Archive logs for all projects in the monorepo
+    """
+    task_header("log-archive", "Archive all files from .log directories", ctx,
+                all_projects=all_projects)
+    
+    if all_projects:
+        # Get the root directory (where this script is located)
+        root_dir = Path(__file__).parent
+        projects = []
+        
+        # Find all directories with .log folders
+        for item in root_dir.parent.iterdir():
+            if item.is_dir() and (item / ".log").exists():
+                projects.append(item)
+        
+        if not projects:
+            print("No projects with .log directories found.")
+            return 0
+        
+        print(f"Found {len(projects)} projects with .log directories:")
+        for project in projects:
+            print(f"  - {project.name}")
+        print()
+        
+        # Archive each project
+        total_archived = 0
+        for project in projects:
+            print(f"Archiving logs for {project.name}...")
+            archived = _archive_project_logs(project)
+            total_archived += archived
+            print()
+        
+        print(f"Total files archived across all projects: {total_archived}")
+    else:
+        # Archive just the current project
+        current_dir = Path.cwd()
+        archived = _archive_project_logs(current_dir)
+        print(f"Total files archived: {archived}")
+
+
+def _archive_project_logs(project_dir: Path) -> int:
+    """Archive all files from .log directory for a single project.
+    
+    Args:
+        project_dir: Path to the project directory
+        
+    Returns:
+        Number of files archived
+    """
+    log_dir = project_dir / ".log"
+    archive_dir = project_dir / ".log.archive"
+    
+    if not log_dir.exists():
+        print(f"  No .log directory found in {project_dir.name}")
+        return 0
+    
+    # Get list of all files in .log directory
+    log_files = [f for f in log_dir.iterdir() if f.is_file()]
+    if not log_files:
+        print(f"  No files found in {project_dir.name}/.log")
+        return 0
+    
+    # Create archive directory if it doesn't exist
+    archive_dir.mkdir(exist_ok=True)
+    
+    # Generate archive filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    project_name = project_dir.name
+    archive_filename = f"{project_name}_logs_{timestamp}.zip"
+    archive_path = archive_dir / archive_filename
+    
+    print(f"  Creating archive: {archive_filename}")
+    print(f"  Found {len(log_files)} files to archive")
+    
+    # Create the zip archive
+    with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for log_file in log_files:
+            # Add file to zip with just the filename (no path)
+            zipf.write(log_file, log_file.name)
+            print(f"    + {log_file.name}")
+    
+    # Remove the original log files
+    for log_file in log_files:
+        log_file.unlink()
+    
+    # Get archive size for reporting
+    archive_size = archive_path.stat().st_size
+    size_mb = archive_size / (1024 * 1024)
+    
+    print(f"  ✓ Created {archive_filename} ({size_mb:.1f} MB)")
+    print(f"  ✓ Removed {len(log_files)} files from .log directory")
+    
+    return len(log_files)

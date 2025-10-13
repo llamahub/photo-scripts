@@ -16,6 +16,16 @@ except ImportError:
     # Fallback for direct execution
     from image_data import ImageData
 
+# Import COMMON FileManager with fallback
+try:
+    import sys
+
+    common_src_path = Path(__file__).parent.parent.parent.parent / "COMMON" / "src"
+    sys.path.insert(0, str(common_src_path))
+    from common.file_manager import FileManager
+except ImportError:
+    FileManager = None
+
 
 class DuplicateFinder:
     """Handles duplicate detection between source and target directories."""
@@ -48,44 +58,49 @@ class DuplicateFinder:
 
     def get_image_files(self, directory: Path) -> List[Path]:
         """Get all image and video files from directory recursively (optimized for large datasets)."""
-        # Common image and video extensions
-        extensions = {
-            # Images
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".gif",
-            ".bmp",
-            ".tiff",
-            ".tif",
-            ".webp",
-            ".heic",
-            ".heif",
-            ".raw",
-            ".cr2",
-            ".nef",
-            ".arw",
-            ".dng",
-            ".orf",
-            ".rw2",
-            ".pef",
-            ".srw",
-            ".x3f",
-            # Videos
-            ".mp4",
-            ".avi",
-            ".mov",
-            ".wmv",
-            ".flv",
-            ".webm",
-            ".mkv",
-            ".m4v",
-            ".3gp",
-            ".mpg",
-            ".mpeg",
-            ".mts",
-            ".m2ts",
-        }
+        # Get supported extensions from FileManager
+        if FileManager:
+            extensions = FileManager.get_all_media_extensions()
+        else:
+            # Fallback extensions if FileManager not available
+            extensions = {
+                # Images
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".gif",
+                ".bmp",
+                ".tiff",
+                ".tif",
+                ".webp",
+                ".heic",
+                ".heif",
+                ".raw",
+                ".cr2",
+                ".nef",
+                ".arw",
+                ".dng",
+                ".orf",
+                ".rw2",
+                ".pef",
+                ".srw",
+                ".x3f",
+                # Videos
+                ".mp4",
+                ".avi",
+                ".mov",
+                ".wmv",
+                ".flv",
+                ".webm",
+                ".mkv",
+                ".m4v",
+                ".3gp",
+                ".mpg",
+                ".mpeg",
+                ".mts",
+                ".m2ts",
+                ".ts",
+            }
 
         files = []
         file_count = 0
