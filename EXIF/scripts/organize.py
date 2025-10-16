@@ -35,19 +35,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Target directory structure:
-  <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+  Default: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+  --no-parent: <decade>/<year>/<year>-<month>/<filename>
 
 Where:
   - <decade>: Decade in format "YYYY+" (e.g., 1990+, 2000+, 2010+)
   - <year>: 4-digit year (e.g., 1995, 2021)
   - <month>: 2-digit month (e.g., 01, 02, 12)  
-  - <parent folder>: Name of immediate parent folder from source
+  - <parent folder>: Name of immediate parent folder from source (skipped with --no-parent)
   - <filename>: Original filename
 
 Examples:
   %(prog)s /path/to/photos /path/to/organized
   %(prog)s --source /path/to/photos --target /path/to/organized --dry-run
-  %(prog)s /path/to/photos /path/to/organized --debug --move
+  %(prog)s /path/to/photos /path/to/organized --debug --move --no-parent
   %(prog)s /path/to/videos /path/to/organized --video --dry-run
   %(prog)s /path/to/photos /path/to/organized --workers 8 --move
   . run organize "tests/test_images .tmp/sorted" 
@@ -73,6 +74,8 @@ Examples:
                        help='Number of parallel workers (default: auto-detect, use 1 for single-threaded)')
     parser.add_argument('--video', action='store_true',
                        help='Process video files instead of image files (supports mp4, mov, avi, mkv, etc.)')
+    parser.add_argument('--no-parent', action='store_true',
+                        help='Skip parent folder in target path - files go directly to YYYY-MM folders')
     
     args = parser.parse_args()
     
@@ -93,7 +96,8 @@ Examples:
             debug=args.debug,
             move_files=args.move,
             max_workers=args.workers,
-            video_mode=args.video
+            video_mode=args.video,
+            no_parent_folder=args.no_parent
         )
         
         organizer.run()

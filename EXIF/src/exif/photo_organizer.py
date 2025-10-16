@@ -96,6 +96,7 @@ class PhotoOrganizer:
         move_files: bool = False,
         max_workers: int = None,
         video_mode: bool = False,
+        no_parent_folder: bool = False,
     ):
         """
         Initialize PhotoOrganizer.
@@ -108,6 +109,7 @@ class PhotoOrganizer:
             move_files: If True, move files instead of copying them
             max_workers: Number of parallel workers (default: CPU count)
             video_mode: If True, process video files instead of image files
+            no_parent_folder: If True, skip including parent folder in target path structure
         """
         self.source = Path(source).resolve()
         self.target = Path(target).resolve()
@@ -116,6 +118,7 @@ class PhotoOrganizer:
         self.move_files = move_files
         self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
         self.video_mode = video_mode
+        self.no_parent_folder = no_parent_folder
 
         # Setup logging
         self._setup_logging()
@@ -128,10 +131,10 @@ class PhotoOrganizer:
         self.file_type = "video" if video_mode else "image"
 
     def _setup_logging(self):
-        """Setup logging using COMMON ScriptLogging if available, otherwise fallback."""
+        """Setup logging with DEBUG in files, INFO on console."""
         if ScriptLogging:
-            # Use COMMON ScriptLogging (auto-detects script name and uses .log dir)
-            self.logger = ScriptLogging.get_script_logger(debug=self.debug)
+            # Use custom setup with different levels for console vs file
+            self.logger = self._setup_script_logger_custom()
         else:
             # Fallback logging setup
             import logging
@@ -141,6 +144,78 @@ class PhotoOrganizer:
                 format="%(asctime)s - %(levelname)s - %(message)s",
             )
             self.logger = logging.getLogger(__name__)
+
+    def _setup_script_logger_custom(self):
+        """Custom logger setup with DEBUG in files, INFO on console."""
+        import logging
+        import inspect
+        from datetime import datetime
+        
+        # Auto-generate name from calling script
+        frame = inspect.currentframe()
+        try:
+            # Go up the call stack to find the calling script
+            caller_frame = frame.f_back.f_back  # Go back 2 levels to get to the script
+            while caller_frame:
+                filename = caller_frame.f_code.co_filename
+                if filename != __file__ and not filename.endswith("common_tasks.py"):
+                    # Found the calling script
+                    script_name = Path(filename).stem
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    name = f"{script_name}_{timestamp}"
+                    break
+                caller_frame = caller_frame.f_back
+            
+            # Fallback if we couldn't determine the script name
+            if 'name' not in locals():
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                name = f"photo_organizer_{timestamp}"
+        finally:
+            del frame  # Prevent reference cycles
+        
+        # Create log directory
+        log_dir = Path(".log")
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / f"{name}.log"
+        
+        # Create logger
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.DEBUG)  # Always DEBUG for the logger itself
+        
+        # Clear any existing handlers to avoid duplicates
+        logger.handlers.clear()
+        
+        # Create formatters
+        console_formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        file_formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        
+        # Console handler - INFO level (unless debug flag is set)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG if self.debug else logging.INFO)
+        console_handler.setFormatter(console_formatter)
+        logger.addHandler(console_handler)
+        
+        # File handler - always DEBUG level
+        file_handler = logging.FileHandler(log_file, mode="a")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+        
+        # Add header with log file info
+        logger.info("=" * 80)
+        logger.info(f"LOG FILE: {log_file}")
+        logger.info(f"SCRIPT: {name}")
+        logger.info(f"DEBUG MODE: {self.debug}")
+        logger.info("=" * 80)
+        
+        logger.info(f"Script logging initialized for {name} (debug: {self.debug})")
+        return logger
 
     def is_image_file(self, file_path: Path) -> bool:
         """Check if file is a supported image format."""
@@ -170,7 +245,9 @@ class PhotoOrganizer:
         """
         Calculate target path based on image date and source structure.
 
-        Format: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+        Format: <decade>/<year>/<year>-<month>/[<parent folder>/]<filename>
+        - With parent folder (default): <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+        - No parent folder (--no-parent): <decade>/<year>/<year>-<month>/<filename>
 
         Args:
             source_file: Source file path
@@ -194,16 +271,21 @@ class PhotoOrganizer:
             year = "1900"
             month_str = "01"
 
-        # Get parent folder name (immediate parent of the file)
-        parent_folder = source_file.parent.name
-
         # Build target path structure
         decade = self.get_decade_folder(year_int)
         year_month = f"{year}-{month_str}"
 
-        target_path = (
-            self.target / decade / year / year_month / parent_folder / source_file.name
-        )
+        if self.no_parent_folder:
+            # Skip parent folder - go directly to YYYY-MM folder
+            target_path = (
+                self.target / decade / year / year_month / source_file.name
+            )
+        else:
+            # Include parent folder (default behavior)
+            parent_folder = source_file.parent.name
+            target_path = (
+                self.target / decade / year / year_month / parent_folder / source_file.name
+            )
 
         return target_path
 
