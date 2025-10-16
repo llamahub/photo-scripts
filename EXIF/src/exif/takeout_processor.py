@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 from datetime import datetime
-import logging
 import sys
 
 # Import FileManager for file extension management
@@ -26,30 +25,45 @@ except ImportError:
 
 
 class TakeoutProcessor:
-    """Processes Google Takeout ZIP files to extract and enhance images/videos."""
+    """Processes Google Takeout ZIP files or existing folders to extract and enhance images/videos."""
     
-    def __init__(self, zip_path: str, target_dir: str,
-                 create_subdir: bool = False,
-                 debug: bool = False):
+    def __init__(self, zip_path: Optional[str] = None, target_dir: str = None,
+                 create_subdir: bool = False, debug: bool = False,
+                 folder_path: Optional[str] = None):
         """
         Initialize the TakeoutProcessor.
         
         Args:
-            zip_path: Path to the Google Takeout ZIP file
-            target_dir: Path to the target extraction directory
+            zip_path: Path to the Google Takeout ZIP file (for ZIP mode)
+            target_dir: Path to the target extraction/processing directory
             create_subdir: If True, create a subdirectory based on ZIP filename to avoid conflicts
             debug: Enable debug logging
+            folder_path: Path to existing folder containing Takeout files (for folder mode)
         """
-        self.source_zip = Path(zip_path)
-        self.base_target_dir = Path(target_dir)
-        self.create_subdir = create_subdir
+        # Handle backward compatibility: if zip_path is provided as first positional arg, use ZIP mode
+        if zip_path and folder_path:
+            raise ValueError("Cannot specify both zip_path and folder_path")
+        if not zip_path and not folder_path:
+            raise ValueError("Must specify either zip_path or folder_path")
+            
+        self.mode = 'zip' if zip_path else 'folder'
         
-        # Create subdirectory based on ZIP filename to avoid conflicts between multiple ZIPs
-        if create_subdir:
-            zip_name = self.source_zip.stem  # Remove .zip extension
-            self.target_dir = self.base_target_dir / zip_name
+        if self.mode == 'zip':
+            self.source_zip = Path(zip_path)
+            self.base_target_dir = Path(target_dir)
+            self.create_subdir = create_subdir
+            
+            # Create subdirectory based on ZIP filename to avoid conflicts between multiple ZIPs
+            if create_subdir:
+                zip_name = self.source_zip.stem  # Remove .zip extension
+                self.target_dir = self.base_target_dir / zip_name
+            else:
+                self.target_dir = self.base_target_dir
         else:
-            self.target_dir = self.base_target_dir
+            # Folder mode
+            self.source_folder = Path(folder_path)
+            self.target_dir = Path(target_dir) if target_dir else self.source_folder
+            self.create_subdir = False  # Not applicable for folder mode
             
         # Initialize logger (will be set by caller)
         self.logger = None
@@ -86,10 +100,29 @@ class TakeoutProcessor:
     
     def is_sidecar_file(self, file_path: Path) -> bool:
         """Check if file is a sidecar metadata file."""
-        # Google Takeout uses .supplemental-metadata.json extension
+        # Google Takeout uses various .supplemental-*.json extensions (due to filename truncation)
         filename_lower = file_path.name.lower()
-        return (filename_lower.endswith('.supplemental-metadata.json') or
-                filename_lower.endswith('.json'))
+        
+        # Check for all supplemental variations
+        supplemental_patterns = [
+            '.supplemental-metadata.json',
+            '.supplemental-metadata(1).json',
+            '.supplemental-metadata(2).json',
+            '.supplemental-meta.json',
+            '.supplemental-metad.json',
+            '.supplemental-metadat.json',
+            '.supplemental-metada.json',
+            '.supplemental-met.json',
+            '.supplemental-me.json',
+            '.supplemental-m.json'
+        ]
+        
+        for pattern in supplemental_patterns:
+            if filename_lower.endswith(pattern):
+                return True
+                
+        # Also accept generic .json files
+        return filename_lower.endswith('.json')
     
     def find_sidecar_for_media(self, media_file: Path, extracted_files: Dict[str, Path]) -> Optional[Path]:
         """
@@ -246,7 +279,6 @@ class TakeoutProcessor:
             if description:
                 self.logger.debug(f"Description for {media_file.name}: {description[:100]}...")
             
-            self.stats['metadata_updates'] += 1
             return True
             
         except Exception as e:
@@ -256,7 +288,14 @@ class TakeoutProcessor:
     
     def process_takeout(self) -> None:
         """Main processing method to extract and enhance media files."""
-        self.logger.info("Starting Google Takeout processing")
+        if self.mode == 'zip':
+            self._process_zip_mode()
+        else:
+            self._process_folder_mode()
+    
+    def _process_zip_mode(self) -> None:
+        """Process ZIP file mode (original functionality)."""
+        self.logger.info("Starting Google Takeout ZIP processing")
         self.logger.info(f"Source: {self.source_zip}")
         self.logger.info(f"Target: {self.target_dir}")
         
@@ -276,7 +315,38 @@ class TakeoutProcessor:
             elif self.is_sidecar_file(extracted_path):
                 sidecar_files[orig_path] = extracted_path
         
+        self._process_media_files(media_files, sidecar_files)
+    
+    def _process_folder_mode(self) -> None:
+        """Process existing folder mode (new functionality)."""
+        self.logger.info("Starting Google Takeout folder processing")
+        self.logger.info(f"Source folder: {self.source_folder}")
+        self.logger.info(f"Target: {self.target_dir}")
+        
+        # Scan folder for media and sidecar files
+        self.logger.info("Scanning folder for media and sidecar files...")
+        
+        media_files = []
+        sidecar_files = {}
+        
+        # Walk through the source folder recursively
+        for file_path in self.source_folder.rglob('*'):
+            if file_path.is_file():
+                if self.is_media_file(file_path):
+                    media_files.append(file_path)
+                elif self.is_sidecar_file(file_path):
+                    # For folder mode, use the file path itself as the key
+                    sidecar_files[str(file_path)] = file_path
+        
         self.logger.info(f"Found {len(media_files)} media files and {len(sidecar_files)} sidecar files")
+        
+        # Process media files with in-place updates
+        in_place_mode = (self.source_folder == self.target_dir)
+        self._process_media_files(media_files, sidecar_files, in_place=in_place_mode)
+    
+    def _process_media_files(self, media_files, sidecar_files, in_place=False) -> None:
+        """Process media files and update their metadata using sidecar files."""
+        self.logger.info(f"Processing {len(media_files)} media files...")
         
         # Process media files
         for media_file in media_files:
@@ -288,7 +358,12 @@ class TakeoutProcessor:
                     self.stats['videos_processed'] += 1
                 
                 # Find corresponding sidecar file
-                sidecar_file = self.find_sidecar_for_media(media_file, extracted_files)
+                if self.mode == 'zip':
+                    # For ZIP mode, we need to reverse lookup the original path
+                    sidecar_file = self.find_sidecar_for_media(media_file, sidecar_files)
+                else:
+                    # For folder mode, look for sidecar files directly
+                    sidecar_file = self._find_sidecar_for_media_folder(media_file, sidecar_files)
                 
                 if sidecar_file:
                     self.stats['sidecar_files_found'] += 1
@@ -297,29 +372,79 @@ class TakeoutProcessor:
                     metadata = self.parse_sidecar_metadata(sidecar_file)
                     
                     if metadata:
-                        # Update media file with metadata
-                        self.update_media_metadata(media_file, metadata)
+                        self.logger.debug(f"Processing {media_file.name} with metadata from {sidecar_file.name}")
+                        
+                        # Update file metadata using existing method
+                        success = self.update_media_metadata(media_file, metadata)
+                        
+                        if success:
+                            self.stats['metadata_updates'] += 1
+                        else:
+                            self.stats['errors'] += 1
+                    else:
+                        self.logger.warning(f"Could not parse metadata from {sidecar_file}")
+                        self.stats['errors'] += 1
                 else:
                     self.logger.debug(f"No sidecar file found for {media_file.name}")
-                
-                # Progress logging
-                total_processed = self.stats['images_processed'] + self.stats['videos_processed']
-                if total_processed % 50 == 0:
-                    self.logger.info(f"Processed {total_processed}/{len(media_files)} media files...")
                     
             except Exception as e:
                 self.logger.error(f"Error processing {media_file}: {e}")
                 self.stats['errors'] += 1
+    
+    def _find_sidecar_for_media_folder(self, media_file: Path, sidecar_files: Dict) -> Optional[Path]:
+        """Find sidecar file for a media file in folder mode."""
+        # Generate possible sidecar filenames based on the media file
+        media_stem = media_file.stem
+        media_dir = media_file.parent
+        
+        # Try different sidecar naming patterns Google Takeout uses
+        # Based on analysis, these patterns exist due to filename truncation:
+        # supplemental-metadata.json, supplemental-meta.json, supplemental-metad.json, etc.
+        supplemental_variations = [
+            "supplemental-metadata.json",
+            "supplemental-metadata(1).json",
+            "supplemental-metadata(2).json",
+            "supplemental-meta.json",
+            "supplemental-metad.json",
+            "supplemental-metadat.json",
+            "supplemental-metada.json",
+            "supplemental-met.json",
+            "supplemental-me.json",
+            "supplemental-m.json"
+        ]
+        
+        possible_names = []
+        # Google Takeout format: filename.jpg.supplemental-*.json (all variations)
+        for variation in supplemental_variations:
+            possible_names.append(f"{media_file.name}.{variation}")
+        
+        # Add other common formats
+        possible_names.extend([
+            f"{media_stem}.json",                             # Simple format: filename.json
+            f"{media_file.name}.json",                        # Full filename + .json extension
+        ])
+        
+        for name in possible_names:
+            sidecar_path = media_dir / name
+            if str(sidecar_path) in sidecar_files:
+                return sidecar_files[str(sidecar_path)]
+        
+        return None
     
     def print_summary(self) -> None:
         """Print processing summary statistics."""
         self.logger.info("=" * 60)
         self.logger.info("GOOGLE TAKEOUT PROCESSING SUMMARY")
         self.logger.info("=" * 60)
-        self.logger.info(f"Source ZIP: {self.source_zip}")
+        
+        if self.mode == 'zip':
+            self.logger.info(f"Source ZIP: {self.source_zip}")
+            self.logger.info(f"Files extracted: {self.stats['files_extracted']:,}")
+            self.logger.info(f"Files overwritten: {self.stats['files_overwritten']:,}")
+        else:
+            self.logger.info(f"Source folder: {self.source_folder}")
+        
         self.logger.info(f"Target directory: {self.target_dir}")
-        self.logger.info(f"Files extracted: {self.stats['files_extracted']:,}")
-        self.logger.info(f"Files overwritten: {self.stats['files_overwritten']:,}")
         self.logger.info(f"Images processed: {self.stats['images_processed']:,}")
         self.logger.info(f"Videos processed: {self.stats['videos_processed']:,}")
         self.logger.info(f"Sidecar files found: {self.stats['sidecar_files_found']:,}")
