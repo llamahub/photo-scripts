@@ -73,6 +73,13 @@ class PhotoOrganizer:
         ".ts",
     }
 
+    # Supported sidecar file extensions
+    SIDECAR_EXTENSIONS = {
+        ".xmp",      # Adobe XMP sidecar files
+        ".yml",      # YAML metadata files
+        ".yaml",     # YAML metadata files (alternative extension)
+    }
+
     @classmethod
     def get_image_extensions(cls):
         """Get set of supported image file extensions."""
@@ -360,8 +367,8 @@ class PhotoOrganizer:
                 action_key = "moved" if self.move_files else "copied"
                 self.stats[action_key] += 1
 
-            # Handle XMP sidecar file if it exists (works in both dry-run and real modes)
-            self._handle_xmp_sidecar(source_file, target_file)
+            # Handle all sidecar files if they exist (works in both dry-run and real modes)
+            self._handle_all_sidecars(source_file, target_file)
 
             operation = "move" if self.move_files else "copy"
             action = (
@@ -378,81 +385,126 @@ class PhotoOrganizer:
             self.stats["errors"] += 1
             return False
 
-    def _handle_xmp_sidecar(self, source_file: Path, target_file: Path) -> None:
+    def _handle_all_sidecars(self, source_file: Path, target_file: Path) -> None:
         """
-        Handle XMP sidecar file if it exists alongside the image or video file.
+        Handle all sidecar files that exist alongside the image or video file.
+        
+        This includes:
+        - XMP files (.xmp)
+        - YAML metadata files (.yml, .yaml)
+        - Google Takeout JSON files (.json, .supplemental-metadata.json)
 
         Args:
             source_file: Original image/video file path
             target_file: Target image/video file path
         """
-        # Look for XMP sidecar file
-        # For images: image.jpg -> image.xmp
-        # For videos: video.mp4 -> video.mp4.xmp
-        if self.video_mode:
-            # Videos: XMP file keeps the full video filename + .xmp
-            source_xmp = source_file.with_suffix(source_file.suffix + ".xmp")
-        else:
-            # Images: XMP file replaces image extension with .xmp
-            source_xmp = source_file.with_suffix(".xmp")
-
-        if source_xmp.exists():
-            # Create corresponding target XMP path
+        source_dir = source_file.parent
+        source_stem = source_file.stem
+        target_dir = target_file.parent
+        target_stem = target_file.stem
+        
+        # Track sidecars found and processed
+        sidecars_found = []
+        
+        # 1. Standard sidecar extensions with same base name
+        for ext in self.SIDECAR_EXTENSIONS:
             if self.video_mode:
-                target_xmp = target_file.with_suffix(target_file.suffix + ".xmp")
+                # Videos: sidecar keeps the full video filename + extension
+                # e.g., video.mp4 -> video.mp4.xmp
+                source_sidecar = source_file.with_suffix(source_file.suffix + ext)
+                target_sidecar = target_file.with_suffix(target_file.suffix + ext)
             else:
-                target_xmp = target_file.with_suffix(".xmp")
-
-            try:
-                if not self.dry_run:
-                    # Check if target XMP already exists
-                    if target_xmp.exists():
-                        self.logger.warning(
-                            f"Target XMP file already exists, skipping: {target_xmp}"
-                        )
-                        return
-
-                    # Move or copy the XMP file
-                    if self.move_files:
-                        shutil.move(str(source_xmp), str(target_xmp))
-                        action = "Moved"
-                        if "xmp_moved" not in self.stats:
-                            self.stats["xmp_moved"] = 0
-                        self.stats["xmp_moved"] += 1
+                # Images: sidecar replaces image extension
+                # e.g., image.jpg -> image.xmp
+                source_sidecar = source_file.with_suffix(ext)
+                target_sidecar = target_file.with_suffix(ext)
+            
+            if source_sidecar.exists():
+                sidecars_found.append((source_sidecar, target_sidecar))
+        
+        # 2. Google Takeout style JSON files
+        # Look for .json files that contain the source filename in their name
+        try:
+            for json_file in source_dir.glob("*.json"):
+                if (source_stem in json_file.stem or
+                        json_file.name.endswith(".supplemental-metadata.json")):
+                    # Create corresponding target JSON path
+                    if source_stem in json_file.stem:
+                        # Replace source stem with target stem in the sidecar name
+                        new_name = json_file.name.replace(source_stem, target_stem)
+                        target_sidecar = target_dir / new_name
                     else:
-                        shutil.copy2(source_xmp, target_xmp)
-                        action = "Copied"
-                        if "xmp_copied" not in self.stats:
-                            self.stats["xmp_copied"] = 0
-                        self.stats["xmp_copied"] += 1
-
-                    file_type = "video" if self.video_mode else "image"
-                    self.logger.debug(
-                        f"{action} {file_type} XMP: {source_xmp} -> {target_xmp}"
+                        # For .supplemental-metadata.json, keep the same name pattern
+                        target_sidecar = target_dir / json_file.name
+                    
+                    sidecars_found.append((json_file, target_sidecar))
+        except PermissionError:
+            self.logger.debug(f"Permission denied accessing directory: {source_dir}")
+        
+        # Process all found sidecars
+        for source_sidecar, target_sidecar in sidecars_found:
+            self._process_single_sidecar(source_sidecar, target_sidecar)
+    
+    def _process_single_sidecar(self, source_sidecar: Path, target_sidecar: Path) -> None:
+        """
+        Process a single sidecar file (move or copy).
+        
+        Args:
+            source_sidecar: Source sidecar file path
+            target_sidecar: Target sidecar file path
+        """
+        try:
+            if not self.dry_run:
+                # Check if target sidecar already exists
+                if target_sidecar.exists():
+                    self.logger.warning(
+                        f"Target sidecar file already exists, skipping: {target_sidecar}"
                     )
+                    return
+
+                # Move or copy the sidecar file
+                if self.move_files:
+                    shutil.move(str(source_sidecar), str(target_sidecar))
+                    action = "Moved"
+                    stat_key = "sidecars_moved"
                 else:
-                    # Dry run
-                    operation = "move" if self.move_files else "copy"
-                    file_type = "video" if self.video_mode else "image"
-                    self.logger.debug(
-                        f"Would {operation} {file_type} XMP: {source_xmp} -> {target_xmp}"
-                    )
+                    shutil.copy2(source_sidecar, target_sidecar)
+                    action = "Copied"
+                    stat_key = "sidecars_copied"
 
-                    if "xmp_moved" not in self.stats:
-                        self.stats["xmp_moved"] = 0
-                        self.stats["xmp_copied"] = 0
+                # Update statistics
+                if stat_key not in self.stats:
+                    self.stats[stat_key] = 0
+                self.stats[stat_key] += 1
 
-                    if self.move_files:
-                        self.stats["xmp_moved"] += 1
-                    else:
-                        self.stats["xmp_copied"] += 1
-
-            except Exception as e:
-                operation = "moving" if self.move_files else "copying"
-                self.logger.error(
-                    f"Error {operation} XMP file {source_xmp} to {target_xmp}: {e}"
+                file_type = "video" if self.video_mode else "image"
+                sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+                self.logger.debug(
+                    f"{action} {file_type} {sidecar_type} sidecar: {source_sidecar} -> {target_sidecar}"
                 )
-                self.stats["errors"] += 1
+            else:
+                # Dry run
+                operation = "move" if self.move_files else "copy"
+                file_type = "video" if self.video_mode else "image"
+                sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+                self.logger.debug(
+                    f"Would {operation} {file_type} {sidecar_type} sidecar: "
+                    f"{source_sidecar} -> {target_sidecar}"
+                )
+
+                # Update dry-run statistics
+                stat_key = "sidecars_moved" if self.move_files else "sidecars_copied"
+                if stat_key not in self.stats:
+                    self.stats[stat_key] = 0
+                self.stats[stat_key] += 1
+
+        except Exception as e:
+            operation = "moving" if self.move_files else "copying"
+            sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+            self.logger.error(
+                f"Error {operation} {sidecar_type} sidecar {source_sidecar} to {target_sidecar}: {e}"
+            )
+            self.stats["errors"] += 1
 
     def process_file(self, file_path: Path):
         """
@@ -583,9 +635,9 @@ class PhotoOrganizer:
         operation = "moved" if self.move_files else "copied"
         action_count = self.stats.get("moved", 0) + self.stats.get("copied", 0)
 
-        # Include XMP statistics
-        xmp_action_count = self.stats.get("xmp_moved", 0) + self.stats.get(
-            "xmp_copied", 0
+        # Include sidecar statistics (new unified approach)
+        sidecar_action_count = self.stats.get("sidecars_moved", 0) + self.stats.get(
+            "sidecars_copied", 0
         )
 
         summary = [
@@ -594,7 +646,7 @@ class PhotoOrganizer:
             "=" * 80,
             f"Total files processed: {self.stats['processed']}",
             f"Files {operation}: {action_count}",
-            f"XMP files {operation}: {xmp_action_count}",
+            f"Sidecar files {operation}: {sidecar_action_count}",
             f"Files skipped: {self.stats['skipped']}",
             f"Errors encountered: {self.stats['errors']}",
         ]

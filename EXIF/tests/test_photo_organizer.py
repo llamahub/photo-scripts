@@ -421,3 +421,233 @@ class TestPhotoOrganizer:
 
             # Test dry run mode - should return True but not actually move
             result = organizer.copy_file(test_file, target_file)
+
+            assert result is True
+            assert test_file.exists()  # Original should still exist in dry run
+            assert not target_file.exists()  # Target should not exist in dry run
+
+    def test_handle_all_sidecars_xmp_image(self, temp_dirs):
+        """Test handling XMP sidecar for images."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False)
+
+        # Create test image and XMP sidecar
+        test_image = source_dir / "test.jpg"
+        test_xmp = source_dir / "test.xmp"
+        test_image.write_text("fake image")
+        test_xmp.write_text("XMP metadata")
+
+        target_image = target_dir / "organized" / "test.jpg"
+        target_xmp = target_dir / "organized" / "test.xmp"
+        target_image.parent.mkdir(parents=True)
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        assert target_xmp.exists()
+        assert target_xmp.read_text() == "XMP metadata"
+        assert organizer.stats.get("sidecars_copied", 0) == 1
+
+    def test_handle_all_sidecars_xmp_video(self, temp_dirs):
+        """Test handling XMP sidecar for videos."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, video_mode=True, dry_run=False)
+
+        # Create test video and XMP sidecar
+        test_video = source_dir / "test.mp4"
+        test_xmp = source_dir / "test.mp4.xmp"
+        test_video.write_text("fake video")
+        test_xmp.write_text("Video XMP metadata")
+
+        target_video = target_dir / "organized" / "test.mp4"
+        target_xmp = target_dir / "organized" / "test.mp4.xmp"
+        target_video.parent.mkdir(parents=True)
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_video, target_video)
+
+        assert target_xmp.exists()
+        assert target_xmp.read_text() == "Video XMP metadata"
+        assert organizer.stats.get("sidecars_copied", 0) == 1
+
+    def test_handle_all_sidecars_yaml(self, temp_dirs):
+        """Test handling YAML sidecar files."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False)
+
+        # Create test image and YAML sidecars
+        test_image = source_dir / "test.jpg"
+        test_yml = source_dir / "test.yml"
+        test_yaml = source_dir / "test.yaml"
+        test_image.write_text("fake image")
+        test_yml.write_text("YML metadata")
+        test_yaml.write_text("YAML metadata")
+
+        target_image = target_dir / "organized" / "test.jpg"
+        target_yml = target_dir / "organized" / "test.yml"
+        target_yaml = target_dir / "organized" / "test.yaml"
+        target_image.parent.mkdir(parents=True)
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        assert target_yml.exists()
+        assert target_yaml.exists()
+        assert target_yml.read_text() == "YML metadata"
+        assert target_yaml.read_text() == "YAML metadata"
+        assert organizer.stats.get("sidecars_copied", 0) == 2
+
+    def test_handle_all_sidecars_google_takeout_json(self, temp_dirs):
+        """Test handling Google Takeout JSON sidecar files."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False)
+
+        # Create test image and Google Takeout JSON sidecars
+        test_image = source_dir / "test.jpg"
+        test_json = source_dir / "test.json"
+        test_supplemental = source_dir / "test.jpg.supplemental-metadata.json"
+        test_image.write_text("fake image")
+        test_json.write_text('{"title": "Test image"}')
+        test_supplemental.write_text('{"photoTakenTime": {"timestamp": "1234567890"}}')
+
+        target_image = target_dir / "organized" / "test.jpg"
+        target_json = target_dir / "organized" / "test.json"
+        target_supplemental = target_dir / "organized" / "test.jpg.supplemental-metadata.json"
+        target_image.parent.mkdir(parents=True)
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        assert target_json.exists()
+        assert target_supplemental.exists()
+        assert target_json.read_text() == '{"title": "Test image"}'
+        assert target_supplemental.read_text() == '{"photoTakenTime": {"timestamp": "1234567890"}}'
+        assert organizer.stats.get("sidecars_copied", 0) == 2
+
+    def test_handle_all_sidecars_dry_run(self, temp_dirs):
+        """Test sidecar handling in dry run mode."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, dry_run=True)
+
+        # Create test image and sidecars
+        test_image = source_dir / "test.jpg"
+        test_xmp = source_dir / "test.xmp"
+        test_yml = source_dir / "test.yml"
+        test_image.write_text("fake image")
+        test_xmp.write_text("XMP metadata")
+        test_yml.write_text("YML metadata")
+
+        target_image = target_dir / "organized" / "test.jpg"
+        target_xmp = target_dir / "organized" / "test.xmp"
+        target_yml = target_dir / "organized" / "test.yml"
+
+        # Test dry run sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        # Files should not be copied in dry run
+        assert not target_xmp.exists()
+        assert not target_yml.exists()
+        # But stats should be updated
+        assert organizer.stats.get("sidecars_copied", 0) == 2
+
+    def test_handle_all_sidecars_move_mode(self, temp_dirs):
+        """Test sidecar handling in move mode."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, move_files=True, dry_run=False)
+
+        # Create test image and sidecar
+        test_image = source_dir / "test.jpg"
+        test_xmp = source_dir / "test.xmp"
+        test_image.write_text("fake image")
+        test_xmp.write_text("XMP metadata")
+
+        target_image = target_dir / "organized" / "test.jpg"
+        target_xmp = target_dir / "organized" / "test.xmp"
+        target_image.parent.mkdir(parents=True)
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        assert target_xmp.exists()
+        assert not test_xmp.exists()  # Source should be moved (deleted)
+        assert target_xmp.read_text() == "XMP metadata"
+        assert organizer.stats.get("sidecars_moved", 0) == 1
+
+    def test_handle_all_sidecars_existing_target(self, temp_dirs):
+        """Test sidecar handling when target already exists."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False)
+
+        # Create test image and sidecar
+        test_image = source_dir / "test.jpg"
+        test_xmp = source_dir / "test.xmp"
+        test_image.write_text("fake image")
+        test_xmp.write_text("XMP metadata")
+
+        target_image = target_dir / "organized" / "test.jpg"
+        target_xmp = target_dir / "organized" / "test.xmp"
+        target_image.parent.mkdir(parents=True)
+        target_xmp.write_text("existing XMP")  # Pre-existing target
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        # Target should remain unchanged (skipped)
+        assert target_xmp.exists()
+        assert target_xmp.read_text() == "existing XMP"
+        assert organizer.stats.get("sidecars_copied", 0) == 0
+
+    def test_handle_all_sidecars_multiple_types(self, temp_dirs):
+        """Test handling multiple sidecar types for one image."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, dry_run=False)
+
+        # Create test image and multiple sidecars
+        test_image = source_dir / "photo.jpg"
+        test_xmp = source_dir / "photo.xmp"
+        test_yml = source_dir / "photo.yml"
+        test_json = source_dir / "photo.json"
+        test_supplemental = source_dir / "photo.jpg.supplemental-metadata.json"
+        
+        test_image.write_text("fake image")
+        test_xmp.write_text("XMP metadata")
+        test_yml.write_text("YML metadata")
+        test_json.write_text('{"title": "Photo"}')
+        test_supplemental.write_text('{"timestamp": "123456"}')
+
+        target_image = target_dir / "organized" / "photo.jpg"
+        target_image.parent.mkdir(parents=True)
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        # All sidecars should be copied
+        assert (target_dir / "organized" / "photo.xmp").exists()
+        assert (target_dir / "organized" / "photo.yml").exists()
+        assert (target_dir / "organized" / "photo.json").exists()
+        assert (target_dir / "organized" / "photo.jpg.supplemental-metadata.json").exists()
+        assert organizer.stats.get("sidecars_copied", 0) == 4
+
+    def test_handle_all_sidecars_no_parent_folder_mode(self, temp_dirs):
+        """Test sidecar handling with no_parent_folder mode."""
+        source_dir, target_dir = temp_dirs
+        organizer = PhotoOrganizer(source_dir, target_dir, no_parent_folder=True, dry_run=False)
+
+        # Create test image and sidecar in subfolder
+        subfolder = source_dir / "subfolder"
+        subfolder.mkdir()
+        test_image = subfolder / "test.jpg"
+        test_xmp = subfolder / "test.xmp"
+        test_image.write_text("fake image")
+        test_xmp.write_text("XMP metadata")
+
+        target_image = target_dir / "organized" / "test.jpg"
+        target_image.parent.mkdir(parents=True)
+
+        # Test sidecar handling
+        organizer._handle_all_sidecars(test_image, target_image)
+
+        target_xmp = target_dir / "organized" / "test.xmp"
+        assert target_xmp.exists()
+        assert target_xmp.read_text() == "XMP metadata"
+        assert organizer.stats.get("sidecars_copied", 0) == 1

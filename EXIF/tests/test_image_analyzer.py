@@ -4,6 +4,7 @@
 import pytest
 import os
 import csv
+import json
 import tempfile
 import shutil
 from pathlib import Path
@@ -405,6 +406,279 @@ class TestImageAnalyzer:
             assert len(csv_rows) == len(self.test_files)
             for row in csv_rows:
                 assert row["condition_category"] == "Match"
+
+    # Additional tests for improved coverage
+
+    def test_analyze_images_fast_no_folder_path(self):
+        """Test analyze_images_fast with no folder path."""
+        analyzer = ImageAnalyzer()
+        with pytest.raises(ValueError, match="No folder path provided"):
+            analyzer.analyze_images_fast()
+
+    def test_analyze_images_fast_nonexistent_folder(self):
+        """Test analyze_images_fast with nonexistent folder."""
+        analyzer = ImageAnalyzer()
+        with pytest.raises(FileNotFoundError, match="Folder not found"):
+            analyzer.analyze_images_fast("/nonexistent/path")
+
+    def test_analyze_images_fast_empty_folder(self):
+        """Test analyze_images_fast with empty folder."""
+        empty_folder = os.path.join(self.temp_dir, "empty")
+        os.makedirs(empty_folder)
+        analyzer = ImageAnalyzer()
+        
+        results = analyzer.analyze_images_fast(empty_folder)
+        assert results == []
+
+    @patch("exif.image_analyzer.ImageData.getImageDate")
+    @patch("exif.image_analyzer.ImageData.getFilenameDate")
+    @patch("exif.image_analyzer.ImageData.normalize_parent_date")
+    def test_analyze_images_fast_with_progress_callback(
+        self, mock_parent_date, mock_filename_date, mock_image_date
+    ):
+        """Test analyze_images_fast with progress callback."""
+        # Mock return values
+        mock_image_date.return_value = "2023-06-15 12:30"
+        mock_filename_date.return_value = "2023-06-15 12:30"
+        mock_parent_date.return_value = "2023-06-15 00:00"
+        
+        analyzer = ImageAnalyzer(batch_size=2)
+        progress_calls = []
+        
+        def progress_callback(current, total):
+            progress_calls.append((current, total))
+            
+        results = analyzer.analyze_images_fast(self.test_folder, progress_callback)
+        
+        assert len(results) == len(self.test_files)
+        assert len(progress_calls) >= 1  # Should have at least one progress update
+        # Check that progress values are reasonable
+        for current, total in progress_calls:
+            assert 0 < current <= total
+            assert total == len(self.test_files)
+
+    def test_find_image_files_fast(self):
+        """Test _find_image_files_fast method."""
+        analyzer = ImageAnalyzer()
+        
+        # Create additional non-image files
+        non_image_files = ["document.txt", "video.mp4", "README.md"]
+        for filename in non_image_files:
+            filepath = os.path.join(self.test_folder, filename)
+            Path(filepath).touch()
+        
+        image_files = analyzer._find_image_files_fast(self.test_folder)
+        
+        # Should only return image files (jpg, CR2, png, tiff from our test files)
+        expected_extensions = {".jpg", ".cr2", ".png", ".tiff"}
+        found_extensions = {Path(f).suffix.lower() for f in image_files}
+        
+        assert len(image_files) == len(self.test_files)
+        assert found_extensions.issubset(expected_extensions)
+
+    @patch("exif.image_analyzer.subprocess.run")
+    def test_batch_extract_exif_success(self, mock_run):
+        """Test _batch_extract_exif method with successful extraction."""
+        # Mock successful ExifTool response
+        mock_exif_data = [
+            {
+                "SourceFile": self.test_files[0],
+                "DateTimeOriginal": "2023:06:15 12:30:00",
+                "ImageWidth": 1920,
+                "ImageHeight": 1080
+            },
+            {
+                "SourceFile": self.test_files[1],
+                "DateTimeOriginal": "2024:03:01 14:30:45",
+                "ImageWidth": 4000,
+                "ImageHeight": 3000
+            }
+        ]
+        
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps(mock_exif_data)
+        )
+        
+        analyzer = ImageAnalyzer()
+        test_batch = [os.path.join(self.test_folder, f) for f in self.test_files[:2]]
+        
+        exif_data = analyzer._batch_extract_exif(test_batch)
+        
+        assert len(exif_data) == 2
+        assert self.test_files[0] in exif_data
+        assert self.test_files[1] in exif_data
+        assert exif_data[self.test_files[0]]["ImageWidth"] == 1920
+        assert exif_data[self.test_files[1]]["ImageHeight"] == 3000
+
+    @patch("exif.image_analyzer.subprocess.run")
+    def test_batch_extract_exif_failure(self, mock_run):
+        """Test _batch_extract_exif method with ExifTool failure."""
+        # Mock ExifTool failure
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="ExifTool error"
+        )
+        
+        analyzer = ImageAnalyzer()
+        test_batch = [os.path.join(self.test_folder, f) for f in self.test_files[:2]]
+        
+        exif_data = analyzer._batch_extract_exif(test_batch)
+        
+        assert exif_data == {}
+
+    @patch("exif.image_analyzer.subprocess.run")
+    def test_batch_extract_exif_json_error(self, mock_run):
+        """Test _batch_extract_exif method with invalid JSON response."""
+        # Mock invalid JSON response
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="invalid json"
+        )
+        
+        analyzer = ImageAnalyzer()
+        test_batch = [os.path.join(self.test_folder, f) for f in self.test_files[:1]]
+        
+        exif_data = analyzer._batch_extract_exif(test_batch)
+        
+        assert exif_data == {}
+
+    @patch("exif.image_analyzer.ImageData.getImageDate")
+    def test_analyze_single_image_cached_with_exif(self, mock_image_date):
+        """Test _analyze_single_image_cached with EXIF data."""
+        mock_image_date.return_value = "2023-06-15 12:30"
+        
+        analyzer = ImageAnalyzer()
+        test_file = os.path.join(self.test_folder, self.test_files[0])
+        
+        # Mock cached EXIF data
+        exif_data = {
+            "DateTimeOriginal": "2023:06:15 12:30:00",
+            "ImageWidth": 1920,
+            "ImageHeight": 1080
+        }
+        
+        result = analyzer._analyze_single_image_cached(test_file, exif_data)
+        
+        assert result["filepath"] == test_file
+        assert result["filename"] == self.test_files[0]
+        assert "condition_category" in result
+        assert "width" in result
+        assert "height" in result
+
+    def test_analyze_single_image_cached_error(self):
+        """Test _analyze_single_image_cached with error handling."""
+        analyzer = ImageAnalyzer()
+        
+        # Use a non-existent file to trigger an error
+        bad_file = "/nonexistent/file.jpg"
+        
+        result = analyzer._analyze_single_image_cached(bad_file)
+        
+        assert result["filepath"] == bad_file
+        assert result["filename"] == "file.jpg"
+        # The method should return valid structure even for non-existent files
+        assert "condition_category" in result
+
+    def test_analyze_with_progress(self):
+        """Test analyze_with_progress method."""
+        with patch.object(ImageAnalyzer, "analyze_images_fast") as mock_analyze:
+            mock_analyze.return_value = ["result1", "result2"]
+            
+            analyzer = ImageAnalyzer()
+            results = analyzer.analyze_with_progress(self.test_folder)
+            
+            # Should call analyze_images_fast with a progress callback
+            mock_analyze.assert_called_once()
+            call_args = mock_analyze.call_args
+            assert call_args[0][0] == self.test_folder  # folder_path
+            assert callable(call_args[0][1])  # progress_callback
+            assert results == ["result1", "result2"]
+
+    @patch("random.sample")
+    def test_analyze_sample_large_dataset(self, mock_sample):
+        """Test analyze_sample with dataset larger than sample size."""
+        # Create more test files
+        large_file_list = [f"image_{i}.jpg" for i in range(200)]
+        for filename in large_file_list:
+            filepath = os.path.join(self.test_folder, filename)
+            Path(filepath).touch()
+        
+        # Mock random.sample to return a predictable subset
+        sample_files = [os.path.join(self.test_folder, f"image_{i}.jpg") for i in range(50)]
+        mock_sample.return_value = sample_files
+        
+        with patch.object(ImageAnalyzer, "_process_batch_parallel") as mock_process:
+            mock_process.return_value = ["sample_result"] * 50
+            
+            analyzer = ImageAnalyzer()
+            results = analyzer.analyze_sample(self.test_folder, sample_size=50)
+            
+            mock_sample.assert_called_once()
+            assert len(results) == 50
+
+    def test_analyze_sample_small_dataset(self):
+        """Test analyze_sample with dataset smaller than sample size."""
+        with patch.object(ImageAnalyzer, "analyze_images_fast") as mock_analyze:
+            mock_analyze.return_value = ["result"] * len(self.test_files)
+            
+            analyzer = ImageAnalyzer()
+            results = analyzer.analyze_sample(self.test_folder, sample_size=100)
+            
+            # Should call analyze_images_fast since dataset is smaller than sample
+            mock_analyze.assert_called_once_with(self.test_folder)
+            assert len(results) == len(self.test_files)
+
+    def test_getImageDate_cached_with_exif_priority(self):
+        """Test _getImageDate_cached method with EXIF priority order."""
+        analyzer = ImageAnalyzer()
+        
+        # Test priority order - DateTimeOriginal should take precedence
+        exif_data = {
+            "FileModifyDate": "2020:01:01 10:00:00",
+            "XMP-photoshop:DateCreated": "2021:02:02 11:00:00",
+            "ExifIFD:DateTimeOriginal": "2022:03:03 12:00:00",
+            "DateTimeOriginal": "2023:04:04 13:00:00"  # This should win
+        }
+        
+        with patch.object(analyzer, 'normalize_date') as mock_normalize:
+            mock_normalize.return_value = "2023-04-04 13:00"
+            
+            result = analyzer._getImageDate_cached("test.jpg", exif_data)
+            
+            # Should have called normalize_date with the DateTimeOriginal value
+            mock_normalize.assert_called_with("2023-04-04 13:00:00")
+            assert result == "2023-04-04 13:00"
+
+    def test_getImageDate_cached_filename_fallback(self):
+        """Test _getImageDate_cached fallback to filename date."""
+        analyzer = ImageAnalyzer()
+        
+        # Empty EXIF data
+        exif_data = {}
+        
+        with patch.object(analyzer, 'getFilenameDate') as mock_filename_date:
+            mock_filename_date.return_value = "2023-06-15 12:30"
+            
+            result = analyzer._getImageDate_cached("2023-06-15_photo.jpg", exif_data)
+            
+            mock_filename_date.assert_called_once_with("2023-06-15_photo.jpg")
+            assert result == "2023-06-15 12:30"
+
+    def test_getImageDate_cached_default_fallback(self):
+        """Test _getImageDate_cached default fallback."""
+        analyzer = ImageAnalyzer()
+        
+        # Empty EXIF data and no filename date
+        exif_data = {}
+        
+        with patch.object(analyzer, 'getFilenameDate') as mock_filename_date:
+            mock_filename_date.return_value = "1900-01-01 00:00"
+            
+            result = analyzer._getImageDate_cached("random_photo.jpg", exif_data)
+            
+            assert result == "1900-01-01 00:00"
 
 
 if __name__ == "__main__":
