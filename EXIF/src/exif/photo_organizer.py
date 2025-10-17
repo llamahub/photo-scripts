@@ -75,9 +75,9 @@ class PhotoOrganizer:
 
     # Supported sidecar file extensions
     SIDECAR_EXTENSIONS = {
-        ".xmp",      # Adobe XMP sidecar files
-        ".yml",      # YAML metadata files
-        ".yaml",     # YAML metadata files (alternative extension)
+        ".xmp",  # Adobe XMP sidecar files
+        ".yml",  # YAML metadata files
+        ".yaml",  # YAML metadata files (alternative extension)
     }
 
     @classmethod
@@ -136,13 +136,13 @@ class PhotoOrganizer:
 
         # Set file type for logging
         self.file_type = "video" if video_mode else "image"
-        
+
         # Message collapsing for console output (track counts of repetitive messages)
         self.message_counts = {
-            'sidecar_already_exists': 0,
-            'sidecar_file_missing': 0,
-            'target_file_exists': 0,
-            'other_errors': 0
+            "sidecar_already_exists": 0,
+            "sidecar_file_missing": 0,
+            "target_file_exists": 0,
+            "other_errors": 0,
         }
 
     def _setup_logging(self):
@@ -163,42 +163,60 @@ class PhotoOrganizer:
     def _create_filtered_console_handler(self):
         """Create a console handler that filters repetitive warning messages."""
         import logging
-        
+
         class FilteredConsoleHandler(logging.StreamHandler):
             def __init__(self, photo_organizer):
                 super().__init__()
                 self.photo_organizer = photo_organizer
                 self.shown_message_types = set()
-            
+
             def emit(self, record):
                 # Check if this is a repetitive message type that should be filtered
-                if record.levelname == 'WARNING':
-                    if 'Target file already exists, skipping:' in record.getMessage():
-                        if 'target_file_exists_warning_shown' not in self.shown_message_types:
+                if record.levelname == "WARNING":
+                    if "Target file already exists, skipping:" in record.getMessage():
+                        if (
+                            "target_file_exists_warning_shown"
+                            not in self.shown_message_types
+                        ):
                             # Show first occurrence with note about collapsing
                             original_msg = record.getMessage()
                             record.msg = f"{original_msg} (further duplicates will be summarized at end)"
-                            self.shown_message_types.add('target_file_exists_warning_shown')
+                            self.shown_message_types.add(
+                                "target_file_exists_warning_shown"
+                            )
                             super().emit(record)
                         return
-                    elif 'Target sidecar file already exists, skipping:' in record.getMessage():
-                        if 'sidecar_exists_warning_shown' not in self.shown_message_types:
+                    elif (
+                        "Target sidecar file already exists, skipping:"
+                        in record.getMessage()
+                    ):
+                        if (
+                            "sidecar_exists_warning_shown"
+                            not in self.shown_message_types
+                        ):
                             original_msg = record.getMessage()
                             record.msg = f"{original_msg} (further duplicates will be summarized at end)"
-                            self.shown_message_types.add('sidecar_exists_warning_shown')
+                            self.shown_message_types.add("sidecar_exists_warning_shown")
                             super().emit(record)
                         return
-                    elif 'Sidecar file already moved or missing:' in record.getMessage():
-                        if 'sidecar_missing_warning_shown' not in self.shown_message_types:
+                    elif (
+                        "Sidecar file already moved or missing:" in record.getMessage()
+                    ):
+                        if (
+                            "sidecar_missing_warning_shown"
+                            not in self.shown_message_types
+                        ):
                             original_msg = record.getMessage()
                             record.msg = f"{original_msg} (further duplicates will be summarized at end)"
-                            self.shown_message_types.add('sidecar_missing_warning_shown')
+                            self.shown_message_types.add(
+                                "sidecar_missing_warning_shown"
+                            )
                             super().emit(record)
                         return
-                
+
                 # Show all other messages normally
                 super().emit(record)
-        
+
         return FilteredConsoleHandler(self)
 
     def _setup_script_logger_custom(self):
@@ -206,7 +224,7 @@ class PhotoOrganizer:
         import logging
         import inspect
         from datetime import datetime
-        
+
         # Auto-generate name from calling script
         frame = inspect.currentframe()
         try:
@@ -221,55 +239,53 @@ class PhotoOrganizer:
                     name = f"{script_name}_{timestamp}"
                     break
                 caller_frame = caller_frame.f_back
-            
+
             # Fallback if we couldn't determine the script name
-            if 'name' not in locals():
+            if "name" not in locals():
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 name = f"photo_organizer_{timestamp}"
         finally:
             del frame  # Prevent reference cycles
-        
+
         # Create log directory
         log_dir = Path(".log")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"{name}.log"
-        
+
         # Create logger
         logger = logging.getLogger(name)
         logger.setLevel(logging.DEBUG)  # Always DEBUG for the logger itself
-        
+
         # Clear any existing handlers to avoid duplicates
         logger.handlers.clear()
-        
+
         # Create formatters
         console_formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
         file_formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
-        
+
         # Console handler - INFO level (unless debug flag is set) with message filtering
         console_handler = self._create_filtered_console_handler()
         console_handler.setLevel(logging.DEBUG if self.debug else logging.INFO)
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
-        
+
         # File handler - always DEBUG level
         file_handler = logging.FileHandler(log_file, mode="a")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
-        
+
         # Add header with log file info
         logger.info("=" * 80)
         logger.info(f"LOG FILE: {log_file}")
         logger.info(f"SCRIPT: {name}")
         logger.info(f"DEBUG MODE: {self.debug}")
         logger.info("=" * 80)
-        
+
         logger.info(f"Script logging initialized for {name} (debug: {self.debug})")
         return logger
 
@@ -333,14 +349,17 @@ class PhotoOrganizer:
 
         if self.no_parent_folder:
             # Skip parent folder - go directly to YYYY-MM folder
-            target_path = (
-                self.target / decade / year / year_month / source_file.name
-            )
+            target_path = self.target / decade / year / year_month / source_file.name
         else:
             # Include parent folder (default behavior)
             parent_folder = source_file.parent.name
             target_path = (
-                self.target / decade / year / year_month / parent_folder / source_file.name
+                self.target
+                / decade
+                / year
+                / year_month
+                / parent_folder
+                / source_file.name
             )
 
         return target_path
@@ -396,7 +415,7 @@ class PhotoOrganizer:
 
                 # Check if target file already exists
                 if target_file.exists():
-                    self.message_counts['target_file_exists'] += 1
+                    self.message_counts["target_file_exists"] += 1
                     self.logger.warning(
                         f"Target file already exists, skipping: {target_file}"
                     )
@@ -438,7 +457,7 @@ class PhotoOrganizer:
     def _handle_all_sidecars(self, source_file: Path, target_file: Path) -> None:
         """
         Handle all sidecar files that exist alongside the image or video file.
-        
+
         This includes:
         - XMP files (.xmp)
         - YAML metadata files (.yml, .yaml)
@@ -452,10 +471,10 @@ class PhotoOrganizer:
         source_stem = source_file.stem
         target_dir = target_file.parent
         target_stem = target_file.stem
-        
+
         # Track sidecars found and processed
         sidecars_found = []
-        
+
         # 1. Standard sidecar extensions with same base name
         for ext in self.SIDECAR_EXTENSIONS:
             if self.video_mode:
@@ -468,16 +487,17 @@ class PhotoOrganizer:
                 # e.g., image.jpg -> image.xmp
                 source_sidecar = source_file.with_suffix(ext)
                 target_sidecar = target_file.with_suffix(ext)
-            
+
             if source_sidecar.exists():
                 sidecars_found.append((source_sidecar, target_sidecar))
-        
+
         # 2. Google Takeout style JSON files
         # Look for .json files that contain the source filename in their name
         try:
             for json_file in source_dir.glob("*.json"):
-                if (source_stem in json_file.stem or
-                        json_file.name.endswith(".supplemental-metadata.json")):
+                if source_stem in json_file.stem or json_file.name.endswith(
+                    ".supplemental-metadata.json"
+                ):
                     # Create corresponding target JSON path
                     if source_stem in json_file.stem:
                         # Replace source stem with target stem in the sidecar name
@@ -486,19 +506,21 @@ class PhotoOrganizer:
                     else:
                         # For .supplemental-metadata.json, keep the same name pattern
                         target_sidecar = target_dir / json_file.name
-                    
+
                     sidecars_found.append((json_file, target_sidecar))
         except PermissionError:
             self.logger.debug(f"Permission denied accessing directory: {source_dir}")
-        
+
         # Process all found sidecars
         for source_sidecar, target_sidecar in sidecars_found:
             self._process_single_sidecar(source_sidecar, target_sidecar)
-    
-    def _process_single_sidecar(self, source_sidecar: Path, target_sidecar: Path) -> None:
+
+    def _process_single_sidecar(
+        self, source_sidecar: Path, target_sidecar: Path
+    ) -> None:
         """
         Process a single sidecar file (move or copy).
-        
+
         Args:
             source_sidecar: Source sidecar file path
             target_sidecar: Target sidecar file path
@@ -507,7 +529,7 @@ class PhotoOrganizer:
             if not self.dry_run:
                 # Check if target sidecar already exists
                 if target_sidecar.exists():
-                    self.message_counts['sidecar_already_exists'] += 1
+                    self.message_counts["sidecar_already_exists"] += 1
                     self.logger.warning(
                         f"Target sidecar file already exists, skipping: {target_sidecar}"
                     )
@@ -529,7 +551,7 @@ class PhotoOrganizer:
                 self.stats[stat_key] += 1
 
                 file_type = "video" if self.video_mode else "image"
-                sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+                sidecar_type = source_sidecar.suffix.upper().lstrip(".")
                 self.logger.debug(
                     f"{action} {file_type} {sidecar_type} sidecar: {source_sidecar} -> {target_sidecar}"
                 )
@@ -537,7 +559,7 @@ class PhotoOrganizer:
                 # Dry run
                 operation = "move" if self.move_files else "copy"
                 file_type = "video" if self.video_mode else "image"
-                sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+                sidecar_type = source_sidecar.suffix.upper().lstrip(".")
                 self.logger.debug(
                     f"Would {operation} {file_type} {sidecar_type} sidecar: "
                     f"{source_sidecar} -> {target_sidecar}"
@@ -551,16 +573,16 @@ class PhotoOrganizer:
 
         except FileNotFoundError:
             # Sidecar file was already moved by another media file - this is expected
-            self.message_counts['sidecar_file_missing'] += 1
-            sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+            self.message_counts["sidecar_file_missing"] += 1
+            sidecar_type = source_sidecar.suffix.upper().lstrip(".")
             self.logger.warning(
                 f"Sidecar file already moved or missing: {source_sidecar} "
                 f"(likely moved by duplicate media file)"
             )
         except Exception as e:
             operation = "moving" if self.move_files else "copying"
-            sidecar_type = source_sidecar.suffix.upper().lstrip('.')
-            self.message_counts['other_errors'] += 1
+            sidecar_type = source_sidecar.suffix.upper().lstrip(".")
+            self.message_counts["other_errors"] += 1
             self.logger.error(
                 f"Error {operation} {sidecar_type} sidecar {source_sidecar} to {target_sidecar}: {e}"
             )
@@ -715,17 +737,19 @@ class PhotoOrganizer:
         if any(self.message_counts.values()):
             summary.append("")
             summary.append("Message Summary:")
-            if self.message_counts['target_file_exists'] > 0:
-                count = self.message_counts['target_file_exists']
+            if self.message_counts["target_file_exists"] > 0:
+                count = self.message_counts["target_file_exists"]
                 summary.append(f"  Target files already existed: {count} (skipped)")
-            if self.message_counts['sidecar_already_exists'] > 0:
-                count = self.message_counts['sidecar_already_exists']
+            if self.message_counts["sidecar_already_exists"] > 0:
+                count = self.message_counts["sidecar_already_exists"]
                 summary.append(f"  Sidecar files already existed: {count} (skipped)")
-            if self.message_counts['sidecar_file_missing'] > 0:
-                count = self.message_counts['sidecar_file_missing']
-                summary.append(f"  Sidecar files already moved: {count} (expected for duplicates)")
-            if self.message_counts['other_errors'] > 0:
-                count = self.message_counts['other_errors']
+            if self.message_counts["sidecar_file_missing"] > 0:
+                count = self.message_counts["sidecar_file_missing"]
+                summary.append(
+                    f"  Sidecar files already moved: {count} (expected for duplicates)"
+                )
+            if self.message_counts["other_errors"] > 0:
+                count = self.message_counts["other_errors"]
                 summary.append(f"  Other sidecar errors: {count} (see log for details)")
             summary.append("  (Full details in log file)")
 

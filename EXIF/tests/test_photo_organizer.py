@@ -451,7 +451,9 @@ class TestPhotoOrganizer:
     def test_handle_all_sidecars_xmp_video(self, temp_dirs):
         """Test handling XMP sidecar for videos."""
         source_dir, target_dir = temp_dirs
-        organizer = PhotoOrganizer(source_dir, target_dir, video_mode=True, dry_run=False)
+        organizer = PhotoOrganizer(
+            source_dir, target_dir, video_mode=True, dry_run=False
+        )
 
         # Create test video and XMP sidecar
         test_video = source_dir / "test.mp4"
@@ -512,7 +514,9 @@ class TestPhotoOrganizer:
 
         target_image = target_dir / "organized" / "test.jpg"
         target_json = target_dir / "organized" / "test.json"
-        target_supplemental = target_dir / "organized" / "test.jpg.supplemental-metadata.json"
+        target_supplemental = (
+            target_dir / "organized" / "test.jpg.supplemental-metadata.json"
+        )
         target_image.parent.mkdir(parents=True)
 
         # Test sidecar handling
@@ -521,7 +525,10 @@ class TestPhotoOrganizer:
         assert target_json.exists()
         assert target_supplemental.exists()
         assert target_json.read_text() == '{"title": "Test image"}'
-        assert target_supplemental.read_text() == '{"photoTakenTime": {"timestamp": "1234567890"}}'
+        assert (
+            target_supplemental.read_text()
+            == '{"photoTakenTime": {"timestamp": "1234567890"}}'
+        )
         assert organizer.stats.get("sidecars_copied", 0) == 2
 
     def test_handle_all_sidecars_dry_run(self, temp_dirs):
@@ -553,7 +560,9 @@ class TestPhotoOrganizer:
     def test_handle_all_sidecars_move_mode(self, temp_dirs):
         """Test sidecar handling in move mode."""
         source_dir, target_dir = temp_dirs
-        organizer = PhotoOrganizer(source_dir, target_dir, move_files=True, dry_run=False)
+        organizer = PhotoOrganizer(
+            source_dir, target_dir, move_files=True, dry_run=False
+        )
 
         # Create test image and sidecar
         test_image = source_dir / "test.jpg"
@@ -608,7 +617,7 @@ class TestPhotoOrganizer:
         test_yml = source_dir / "photo.yml"
         test_json = source_dir / "photo.json"
         test_supplemental = source_dir / "photo.jpg.supplemental-metadata.json"
-        
+
         test_image.write_text("fake image")
         test_xmp.write_text("XMP metadata")
         test_yml.write_text("YML metadata")
@@ -625,13 +634,17 @@ class TestPhotoOrganizer:
         assert (target_dir / "organized" / "photo.xmp").exists()
         assert (target_dir / "organized" / "photo.yml").exists()
         assert (target_dir / "organized" / "photo.json").exists()
-        assert (target_dir / "organized" / "photo.jpg.supplemental-metadata.json").exists()
+        assert (
+            target_dir / "organized" / "photo.jpg.supplemental-metadata.json"
+        ).exists()
         assert organizer.stats.get("sidecars_copied", 0) == 4
 
     def test_handle_all_sidecars_no_parent_folder_mode(self, temp_dirs):
         """Test sidecar handling with no_parent_folder mode."""
         source_dir, target_dir = temp_dirs
-        organizer = PhotoOrganizer(source_dir, target_dir, no_parent_folder=True, dry_run=False)
+        organizer = PhotoOrganizer(
+            source_dir, target_dir, no_parent_folder=True, dry_run=False
+        )
 
         # Create test image and sidecar in subfolder
         subfolder = source_dir / "subfolder"
