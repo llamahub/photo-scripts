@@ -1,40 +1,129 @@
 #!/usr/bin/env python3
 """
-Example script showing how to use COMMON ScriptLogging with auto-detection.
+================================================================================
+=== [Example Script] - Template demonstrating consistent argument parsing
+================================================================================
+
+This is a template script that demonstrates the consistent structure and argument
+parsing pattern that all COMMON scripts should follow. It uses the shared
+ScriptArgumentParser from the COMMON framework for consistent CLI interfaces.
+
+Key features:
+- Uses ScriptArgumentParser for standardized argument handling
+- Single source of truth for argument definitions
+- Automatic help text generation
+- Integration with COMMON ScriptLogging
+- Template patterns for all future COMMON script development
+
+Follow this exact structure for all COMMON scripts to ensure consistency.
 """
 
 import sys
-from pathlib import Path
+import os
 
-# Import COMMON logging
-common_src_path = Path(__file__).parent.parent.parent / 'COMMON' / 'src'
-sys.path.insert(0, str(common_src_path))
+# Add src to path for COMMON modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+# Import COMMON framework modules
 try:
     from common.logging import ScriptLogging
-except ImportError:
-    print("Warning: COMMON ScriptLogging not available, using basic logging")
-    import logging
+    from common.argument_parser import (
+        ScriptArgumentParser,
+        create_standard_arguments,
+        merge_arguments
+    )
+except ImportError as e:
     ScriptLogging = None
+    print(f"Warning: COMMON modules not available: {e}")
+    sys.exit(1)
+
+# Script metadata
+SCRIPT_INFO = {
+    'name': 'Example Script',
+    'description': 'Template demonstrating consistent argument parsing',
+    'examples': [
+        'input.csv output.csv',
+        '--input input.csv --output output.csv --dry-run',
+        'input.csv output.csv --source /src --target /dst --verbose'
+    ]
+}
+
+# Script-specific arguments
+SCRIPT_ARGUMENTS = {
+    'input': {
+        'positional': True,
+        'help': 'Input file to process'
+    },
+    'output': {
+        'positional': True,
+        'help': 'Output file to create'
+    },
+    'source_dir': {
+        'flag': '--source',
+        'help': 'Source directory for processing'
+    },
+    'target_dir': {
+        'flag': '--target',
+        'help': 'Target directory for output'
+    }
+}
+
+# Merge with standard arguments (verbose, quiet, dry_run)
+ARGUMENTS = merge_arguments(create_standard_arguments(), SCRIPT_ARGUMENTS)
 
 
 def main():
-    """Main function demonstrating ScriptLogging usage."""
+    """Main entry point with consistent argument parsing and structure."""
     
-    # Setup logging - enhanced version with auto-detection!
-    if ScriptLogging:
-        logger = ScriptLogging.get_script_logger(debug=True)  # Auto-detects script name and uses .log dir
-    else:
-        # Fallback
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger("example")
+    # Create argument parser
+    parser = ScriptArgumentParser(SCRIPT_INFO, ARGUMENTS)
     
-    # Use the logger
-    logger.info("Starting example script")
-    logger.debug("This is a debug message")
-    logger.warning("This is a warning")
-    logger.error("This is an error")
-    logger.info("Script completed successfully")
+    # Print standardized header
+    parser.print_header()
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # Validate and resolve required arguments
+    resolved_args = parser.validate_required_args(args, {
+        'input_file': ['input_file', 'input'],
+        'output_file': ['output_file', 'output']
+    })
+    
+    # Setup logging with consistent pattern
+    logger = parser.setup_logging(resolved_args, "example_script")
+    
+    # Display configuration
+    parser.display_configuration(resolved_args)
+    
+    try:
+        # Initialize business logic processor
+        # processor = ExampleProcessor(
+        #     input_file=resolved_args['input_file'],
+        #     output_file=resolved_args['output_file'],
+        #     source_dir=resolved_args.get('source_dir'),
+        #     target_dir=resolved_args.get('target_dir'),
+        #     dry_run=resolved_args.get('dry_run', False),
+        #     verbose=resolved_args.get('verbose', False)
+        # )
+        
+        logger.info("Starting example script processing")
+        logger.debug("This is a debug message")
+        
+        # Main processing would happen here
+        # results = processor.process()
+        
+        logger.info("Example script completed successfully")
+        
+        if not resolved_args.get('quiet'):
+            print("✅ Processing completed successfully")
+            # print(f"Results: {results}")
+        
+    except Exception as e:
+        logger.error(f"Error during processing: {e}")
+        if not resolved_args.get('quiet'):
+            print(f"❌ Error: {e}")
+        sys.exit(1)
 
 
 if __name__ == '__main__':
