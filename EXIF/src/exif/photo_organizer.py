@@ -136,6 +136,14 @@ class PhotoOrganizer:
 
         # Set file type for logging
         self.file_type = "video" if video_mode else "image"
+        
+        # Message collapsing for console output (track counts of repetitive messages)
+        self.message_counts = {
+            'sidecar_already_exists': 0,
+            'sidecar_file_missing': 0,
+            'target_file_exists': 0,
+            'other_errors': 0
+        }
 
     def _setup_logging(self):
         """Setup logging with DEBUG in files, INFO on console."""
@@ -151,6 +159,47 @@ class PhotoOrganizer:
                 format="%(asctime)s - %(levelname)s - %(message)s",
             )
             self.logger = logging.getLogger(__name__)
+
+    def _create_filtered_console_handler(self):
+        """Create a console handler that filters repetitive warning messages."""
+        import logging
+        
+        class FilteredConsoleHandler(logging.StreamHandler):
+            def __init__(self, photo_organizer):
+                super().__init__()
+                self.photo_organizer = photo_organizer
+                self.shown_message_types = set()
+            
+            def emit(self, record):
+                # Check if this is a repetitive message type that should be filtered
+                if record.levelname == 'WARNING':
+                    if 'Target file already exists, skipping:' in record.getMessage():
+                        if 'target_file_exists_warning_shown' not in self.shown_message_types:
+                            # Show first occurrence with note about collapsing
+                            original_msg = record.getMessage()
+                            record.msg = f"{original_msg} (further duplicates will be summarized at end)"
+                            self.shown_message_types.add('target_file_exists_warning_shown')
+                            super().emit(record)
+                        return
+                    elif 'Target sidecar file already exists, skipping:' in record.getMessage():
+                        if 'sidecar_exists_warning_shown' not in self.shown_message_types:
+                            original_msg = record.getMessage()
+                            record.msg = f"{original_msg} (further duplicates will be summarized at end)"
+                            self.shown_message_types.add('sidecar_exists_warning_shown')
+                            super().emit(record)
+                        return
+                    elif 'Sidecar file already moved or missing:' in record.getMessage():
+                        if 'sidecar_missing_warning_shown' not in self.shown_message_types:
+                            original_msg = record.getMessage()
+                            record.msg = f"{original_msg} (further duplicates will be summarized at end)"
+                            self.shown_message_types.add('sidecar_missing_warning_shown')
+                            super().emit(record)
+                        return
+                
+                # Show all other messages normally
+                super().emit(record)
+        
+        return FilteredConsoleHandler(self)
 
     def _setup_script_logger_custom(self):
         """Custom logger setup with DEBUG in files, INFO on console."""
@@ -202,8 +251,8 @@ class PhotoOrganizer:
             datefmt="%Y-%m-%d %H:%M:%S"
         )
         
-        # Console handler - INFO level (unless debug flag is set)
-        console_handler = logging.StreamHandler()
+        # Console handler - INFO level (unless debug flag is set) with message filtering
+        console_handler = self._create_filtered_console_handler()
         console_handler.setLevel(logging.DEBUG if self.debug else logging.INFO)
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
@@ -347,6 +396,7 @@ class PhotoOrganizer:
 
                 # Check if target file already exists
                 if target_file.exists():
+                    self.message_counts['target_file_exists'] += 1
                     self.logger.warning(
                         f"Target file already exists, skipping: {target_file}"
                     )
@@ -457,6 +507,7 @@ class PhotoOrganizer:
             if not self.dry_run:
                 # Check if target sidecar already exists
                 if target_sidecar.exists():
+                    self.message_counts['sidecar_already_exists'] += 1
                     self.logger.warning(
                         f"Target sidecar file already exists, skipping: {target_sidecar}"
                     )
@@ -498,9 +549,18 @@ class PhotoOrganizer:
                     self.stats[stat_key] = 0
                 self.stats[stat_key] += 1
 
+        except FileNotFoundError:
+            # Sidecar file was already moved by another media file - this is expected
+            self.message_counts['sidecar_file_missing'] += 1
+            sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+            self.logger.warning(
+                f"Sidecar file already moved or missing: {source_sidecar} "
+                f"(likely moved by duplicate media file)"
+            )
         except Exception as e:
             operation = "moving" if self.move_files else "copying"
             sidecar_type = source_sidecar.suffix.upper().lstrip('.')
+            self.message_counts['other_errors'] += 1
             self.logger.error(
                 f"Error {operation} {sidecar_type} sidecar {source_sidecar} to {target_sidecar}: {e}"
             )
@@ -651,8 +711,27 @@ class PhotoOrganizer:
             f"Errors encountered: {self.stats['errors']}",
         ]
 
+        # Add collapsed message summary
+        if any(self.message_counts.values()):
+            summary.append("")
+            summary.append("Message Summary:")
+            if self.message_counts['target_file_exists'] > 0:
+                count = self.message_counts['target_file_exists']
+                summary.append(f"  Target files already existed: {count} (skipped)")
+            if self.message_counts['sidecar_already_exists'] > 0:
+                count = self.message_counts['sidecar_already_exists']
+                summary.append(f"  Sidecar files already existed: {count} (skipped)")
+            if self.message_counts['sidecar_file_missing'] > 0:
+                count = self.message_counts['sidecar_file_missing']
+                summary.append(f"  Sidecar files already moved: {count} (expected for duplicates)")
+            if self.message_counts['other_errors'] > 0:
+                count = self.message_counts['other_errors']
+                summary.append(f"  Other sidecar errors: {count} (see log for details)")
+            summary.append("  (Full details in log file)")
+
         if self.dry_run:
             operation_verb = "moved" if self.move_files else "copied"
+            summary.append("")
             summary.append(
                 f"NOTE: This was a dry run - no files were actually {operation_verb}"
             )
