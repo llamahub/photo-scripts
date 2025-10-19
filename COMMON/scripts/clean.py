@@ -6,24 +6,79 @@ This script can remove:
 - Apple-generated files (.DS_Store, ._* files) with --mac flag
 - Empty directories with --empty flag  
 - Log files (.log files) with --log flag
+- Thumbnail files (Thumbs.db, Desktop.ini, etc) with --thumbs flag
 """
 
 import sys
-import argparse
-from pathlib import Path
-from datetime import datetime
 import os
-import glob
+from pathlib import Path
 
-# Standard COMMON import pattern
-common_src_path = Path(__file__).parent.parent / 'src'
-sys.path.insert(0, str(common_src_path))
+# Add src to path for COMMON modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+# Import COMMON framework modules
 try:
     from common.logging import ScriptLogging
-except ImportError:
-    import logging
+    from common.argument_parser import (
+        ScriptArgumentParser,
+        create_standard_arguments,
+        merge_arguments
+    )
+except ImportError as e:
     ScriptLogging = None
+    print(f"Warning: COMMON modules not available: {e}")
+    sys.exit(1)
+
+# Business logic will be embedded for now (Step 4 will extract to module)
+    
+# Script metadata
+SCRIPT_INFO = {
+    'name': 'Clean Utility Script',
+    'description': '''Clean unwanted files and empty directories
+
+This script can remove:
+- Apple-generated files (.DS_Store, ._* files) with --mac flag
+- Empty directories with --empty flag
+- Log files (.log files) with --log flag
+- Thumbnail files (Thumbs.db, Desktop.ini, etc) with --thumbs flag''',
+    'examples': [
+        '/path/to/folder --mac --empty',
+        '/path/to/folder --log',
+        '/path/to/folder --thumbs',
+        '/path/to/folder --mac --thumbs --empty --dry-run'
+    ]
+}
+
+# Script-specific arguments
+SCRIPT_ARGUMENTS = {
+    'target': {
+        'positional': True,
+        'help': 'Path to target folder to clean'
+    },
+    'mac': {
+        'flag': '--mac',
+        'action': 'store_true',
+        'help': 'Remove Apple-generated files (.DS_Store, ._* files)'
+    },
+    'empty': {
+        'flag': '--empty',
+        'action': 'store_true',
+        'help': 'Remove empty directories'
+    },
+    'log': {
+        'flag': '--log',
+        'action': 'store_true',
+        'help': 'Remove .log files'
+    },
+    'thumbs': {
+        'flag': '--thumbs',
+        'action': 'store_true',
+        'help': 'Remove thumbnail files (Thumbs.db, Desktop.ini, etc)'
+    }
+}
+
+# Merge with standard arguments (verbose, quiet, dry_run)
+ARGUMENTS = merge_arguments(create_standard_arguments(), SCRIPT_ARGUMENTS)
 
 
 class DirectoryCleaner:
@@ -98,198 +153,168 @@ class DirectoryCleaner:
                 self.stats['errors'] += 1
     
     def clean_thumb_files(self, dry_run: bool = False) -> None:
-        """Remove thumbnail files (Thumbs.db, thumbs.db, .thumbnails, etc)."""
+        """Remove thumbnail files (Thumbs.db, Desktop.ini, etc)."""
         self.logger.info("Scanning for thumbnail files...")
         
-        # Common thumbnail file patterns
         thumb_patterns = [
-            '**/Thumbs.db',
-            '**/thumbs.db',
-            '**/THUMBS.DB',
-            '**/.thumbnails/**',
-            '**/Desktop.ini',
-            '**/desktop.ini'
+            'Thumbs.db', 'Desktop.ini', 'Folder.jpg',
+            'AlbumArtSmall.jpg', 'AlbumArt*.jpg'
         ]
+        total_files = 0
         
-        thumb_files = []
         for pattern in thumb_patterns:
-            thumb_files.extend(list(self.target_path.glob(pattern)))
+            thumb_files = list(self.target_path.rglob(pattern))
+            total_files += len(thumb_files)
+            
+            for file_path in thumb_files:
+                try:
+                    if dry_run:
+                        self.logger.info(f"Would remove: {file_path}")
+                    else:
+                        file_path.unlink()
+                        self.logger.debug(f"Removed thumbnail: {file_path}")
+                    self.stats['thumb_files_removed'] += 1
+                except Exception as e:
+                    self.logger.error(f"Failed to remove {file_path}: {e}")
+                    self.stats['errors'] += 1
         
-        # Remove duplicates and filter out directories
-        thumb_files = list(set([f for f in thumb_files if f.is_file()]))
-        
-        self.logger.info(f"Found {len(thumb_files)} thumbnail files")
-        
-        for file_path in thumb_files:
-            try:
-                if dry_run:
-                    self.logger.info(f"Would remove: {file_path}")
-                else:
-                    file_path.unlink()
-                    self.logger.debug(f"Removed thumbnail file: {file_path}")
-                self.stats['thumb_files_removed'] += 1
-            except Exception as e:
-                self.logger.error(f"Failed to remove {file_path}: {e}")
-                self.stats['errors'] += 1
+        self.logger.info(f"Found {total_files} thumbnail files")
     
     def clean_empty_directories(self, dry_run: bool = False) -> None:
-        """Remove empty directories (bottom-up to handle nested empty dirs)."""
+        """Remove empty directories."""
         self.logger.info("Scanning for empty directories...")
         
-        # Get all directories, sorted by depth (deepest first)
-        all_dirs = [d for d in self.target_path.rglob('*') if d.is_dir()]
-        all_dirs.sort(key=lambda x: len(x.parts), reverse=True)
-        
-        empty_dirs_found = 0
-        for dir_path in all_dirs:
-            try:
-                # Check if directory is empty (no files or subdirectories)
-                if not any(dir_path.iterdir()):
+        # Iteratively remove empty directories until no more are found
+        removed_any = True
+        while removed_any:
+            removed_any = False
+            empty_dirs = []
+            
+            for dir_path in self.target_path.rglob('*'):
+                if dir_path.is_dir():
+                    try:
+                        # Check if directory is empty (no files or subdirectories)
+                        if not any(dir_path.iterdir()):
+                            empty_dirs.append(dir_path)
+                    except (OSError, PermissionError):
+                        # Skip directories we can't read
+                        continue
+            
+            # Sort by depth (deepest first) to remove child directories before parents
+            empty_dirs.sort(key=lambda p: len(p.parts), reverse=True)
+            
+            if not empty_dirs:
+                break
+                
+            self.logger.info(f"Found {len(empty_dirs)} empty directories")
+            
+            for dir_path in empty_dirs:
+                try:
                     if dry_run:
-                        self.logger.info(f"Would remove empty directory: {dir_path}")
+                        self.logger.info(f"Would remove: {dir_path}")
+                        self.stats['empty_dirs_removed'] += 1
                     else:
                         dir_path.rmdir()
                         self.logger.debug(f"Removed empty directory: {dir_path}")
-                    empty_dirs_found += 1
-                    self.stats['empty_dirs_removed'] += 1
-            except OSError as e:
-                # Directory not empty or permission error
-                self.logger.debug(f"Could not remove directory {dir_path}: {e}")
-            except Exception as e:
-                self.logger.error(f"Failed to remove directory {dir_path}: {e}")
-                self.stats['errors'] += 1
-        
-        self.logger.info(f"Found {empty_dirs_found} empty directories")
+                        self.stats['empty_dirs_removed'] += 1
+                        removed_any = True
+                except Exception as e:
+                    self.logger.error(f"Failed to remove {dir_path}: {e}")
+                    self.stats['errors'] += 1
+            
+            # In dry-run mode, break after first iteration to avoid infinite loop
+            if dry_run:
+                break
     
-    def print_summary(self) -> None:
+    def print_summary(self):
         """Print cleaning summary statistics."""
         self.logger.info("=" * 50)
-        self.logger.info("CLEANING SUMMARY")
-        self.logger.info("=" * 50)
+        self.logger.info("CLEANING SUMMARY:")
         self.logger.info(f"Apple files removed: {self.stats['mac_files_removed']}")
         self.logger.info(f"Log files removed: {self.stats['log_files_removed']}")
-        self.logger.info(
-            f"Thumbnail files removed: {self.stats['thumb_files_removed']}"
-        )
-        self.logger.info(
-            f"Empty directories removed: {self.stats['empty_dirs_removed']}"
-        )
+        self.logger.info(f"Thumbnail files removed: "
+                         f"{self.stats['thumb_files_removed']}")
+        self.logger.info(f"Empty directories removed: "
+                         f"{self.stats['empty_dirs_removed']}")
         if self.stats['errors'] > 0:
             self.logger.warning(f"Errors encountered: {self.stats['errors']}")
         self.logger.info("=" * 50)
 
 
 def main():
-    """Main function for the clean script."""
-    parser = argparse.ArgumentParser(
-        description="Clean unwanted files and empty directories",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s /path/to/folder --mac --empty    # Clean Apple files and empty dirs
-  %(prog)s /path/to/folder --log            # Clean only log files
-  %(prog)s /path/to/folder --thumbs         # Clean thumbnail files
-  %(prog)s /path/to/folder --mac --thumbs --empty --dry-run  # Preview all cleaning
-        """
-    )
+    """Main entry point with consistent argument parsing and structure."""
     
-    parser.add_argument(
-        'target',
-        type=Path,
-        help='Path to target folder to clean'
-    )
+    # Create argument parser
+    parser = ScriptArgumentParser(SCRIPT_INFO, ARGUMENTS)
     
-    parser.add_argument(
-        '--mac',
-        action='store_true',
-        help='Remove Apple-generated files (.DS_Store, ._* files)'
-    )
+    # Print standardized header
+    parser.print_header()
     
-    parser.add_argument(
-        '--empty',
-        action='store_true',
-        help='Remove empty directories'
-    )
-    
-    parser.add_argument(
-        '--log',
-        action='store_true',
-        help='Remove .log files'
-    )
-    
-    parser.add_argument(
-        '--thumbs',
-        action='store_true',
-        help='Remove thumbnail files (Thumbs.db, Desktop.ini, etc)'
-    )
-    
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would be removed without actually removing anything'
-    )
-    
-    parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Enable debug output'
-    )
-    
+    # Parse arguments
     args = parser.parse_args()
     
-    # Standard logging setup
-    if ScriptLogging:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        logger = ScriptLogging.get_script_logger(
-            name=f"clean_{timestamp}",
-            debug=args.debug
-        )
-    else:
-        logging.basicConfig(
-            level=logging.DEBUG if args.debug else logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        logger = logging.getLogger("clean")
+    # Validate and resolve required arguments
+    resolved_args = parser.validate_required_args(args, {
+        'target_path': ['target']
+    })
     
-    # Validate target directory
-    if not args.target.exists():
-        logger.error(f"Target directory does not exist: {args.target}")
-        return 1
+    # Setup logging with consistent pattern
+    # Use script name without extension for proper log file naming
+    logger = parser.setup_logging(resolved_args, "clean")
     
-    if not args.target.is_dir():
-        logger.error(f"Target path is not a directory: {args.target}")
-        return 1
-    
-    # Check if any cleaning options were specified
-    if not any([args.mac, args.empty, args.log, args.thumbs]):
-        logger.error(
-            "No cleaning options specified. Use --mac, --empty, --log, and/or --thumbs"
-        )
-        logger.info("Use --help for usage information")
-        return 1
-    
-    # Start cleaning
-    logger.info("Starting directory cleaning")
-    logger.info(f"Target directory: {args.target}")
-    
-    if args.dry_run:
-        logger.info("DRY RUN MODE - No files will actually be removed")
-    
-    cleaner = DirectoryCleaner(args.target, logger)
+    # Display configuration with clean-specific labels
+    config_map = {
+        'target_path': 'Target directory',
+        'mac': 'Clean Mac files',
+        'empty': 'Clean empty directories',
+        'log': 'Clean log files',
+        'thumbs': 'Clean thumbnail files'
+    }
+    parser.display_configuration(resolved_args, config_map)
     
     try:
+        # Convert to Path object and validate
+        target_path = Path(resolved_args['target_path'])
+        
+        logger.info("Starting directory cleaning")
+        logger.info(f"Target directory: {target_path}")
+        
+        # Validate target directory
+        if not target_path.exists():
+            logger.error(f"Target directory does not exist: {target_path}")
+            return 1
+        
+        if not target_path.is_dir():
+            logger.error(f"Target path is not a directory: {target_path}")
+            return 1
+        
+        # Check if any cleaning options were specified
+        cleaning_options = ['mac', 'empty', 'log', 'thumbs']
+        if not any(resolved_args.get(option, False) for option in cleaning_options):
+            logger.error("No cleaning options specified. Use --mac, --empty, "
+                         "--log, and/or --thumbs")
+            return 1
+        
+        # Check for dry run mode
+        dry_run = resolved_args.get('dry_run', False)
+        if dry_run:
+            logger.info("DRY RUN MODE - No files will actually be removed")
+        
+        # Initialize cleaner
+        cleaner = DirectoryCleaner(target_path, logger)
+        
         # Perform requested cleaning operations
-        if args.mac:
-            cleaner.clean_mac_files(dry_run=args.dry_run)
+        if resolved_args.get('mac', False):
+            cleaner.clean_mac_files(dry_run=dry_run)
         
-        if args.log:
-            cleaner.clean_log_files(dry_run=args.dry_run)
+        if resolved_args.get('log', False):
+            cleaner.clean_log_files(dry_run=dry_run)
         
-        if args.thumbs:
-            cleaner.clean_thumb_files(dry_run=args.dry_run)
+        if resolved_args.get('thumbs', False):
+            cleaner.clean_thumb_files(dry_run=dry_run)
         
-        if args.empty:
-            cleaner.clean_empty_directories(dry_run=args.dry_run)
+        if resolved_args.get('empty', False):
+            cleaner.clean_empty_directories(dry_run=dry_run)
         
         # Print summary
         cleaner.print_summary()

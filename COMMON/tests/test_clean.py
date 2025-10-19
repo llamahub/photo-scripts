@@ -230,7 +230,7 @@ class TestDirectoryCleaner:
         cleaner.print_summary()
 
         # Verify summary was logged
-        mock_logger.info.assert_any_call("CLEANING SUMMARY")
+        mock_logger.info.assert_any_call("CLEANING SUMMARY:")
         mock_logger.info.assert_any_call("Apple files removed: 5")
         mock_logger.info.assert_any_call("Log files removed: 3")
         mock_logger.info.assert_any_call("Empty directories removed: 2")
@@ -278,7 +278,8 @@ class TestCleanScript:
         )
 
         assert result.returncode != 0
-        assert "required" in result.stderr.lower()
+        # New framework puts error in stdout and uses different message
+        assert "required arguments missing" in result.stdout.lower()
 
     def test_script_nonexistent_target(self, script_path):
         """Test script with nonexistent target directory."""
@@ -373,14 +374,14 @@ class TestCleanScript:
         assert "CLEANING SUMMARY" in result.stderr
 
     def test_script_debug_mode(self, script_path, temp_test_dir):
-        """Test script with debug mode enabled."""
+        """Test script with verbose mode enabled."""
         result = subprocess.run(
             [
                 sys.executable,
                 str(script_path),
                 str(temp_test_dir),
                 "--mac",
-                "--debug",
+                "--verbose",
                 "--dry-run",
             ],
             capture_output=True,
@@ -388,8 +389,8 @@ class TestCleanScript:
         )
 
         assert result.returncode == 0
-        # Debug mode should produce more verbose output
-        assert "DEBUG" in result.stderr or len(result.stderr) > 200
+        # Verbose mode should produce more detailed output
+        assert "DEBUG MODE: True" in result.stdout or len(result.stdout) > 500
 
     def test_script_main_function_direct(self, temp_test_dir):
         """Test calling main function directly."""

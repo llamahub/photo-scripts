@@ -30,7 +30,6 @@ If new classes are created, ensure that they have appropriate unit tests.
 **IMPORTANT**: This list tracks migration progress. Remove scripts from the "To Migrate" sections and move them to "Already Migrated" as they are successfully converted to use ScriptArgumentParser.
 
 ### COMMON Scripts (Manual argparse → ScriptArgumentParser):
-- [ ] `clean.py` - Clean utility for removing unwanted files and empty folders
 - [ ] `scan.py` - Directory scanning and analysis utility
 - [ ] `space.py` - Disk space analysis tool
 
@@ -46,6 +45,7 @@ If new classes are created, ensure that they have appropriate unit tests.
 - [ ] `takeout.py` - Google Takeout processor
 
 ### Already Migrated ✅:
+- [x] `COMMON/scripts/clean.py` - Clean utility for removing unwanted files and empty folders
 - [x] `COMMON/scripts/diff.py` - Directory comparison utility
 - [x] `EXIF/scripts/find_dups.py` - Duplicate finder
 - [x] `EXIF/scripts/organize.py` - Image organization tool
