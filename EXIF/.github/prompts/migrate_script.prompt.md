@@ -24,3 +24,28 @@ If new classes are created, ensure that they have appropriate unit tests.
    - Remove the "Key features:" section (this is framework documentation, not script-specific)
    - Remove the "Follow this structure for all EXIF scripts to ensure consistency." line
    - Keep only the script-specific description, purpose, and usage information
+
+## Scripts To Migrate
+
+**IMPORTANT**: This list tracks migration progress. Remove scripts from the "To Migrate" sections and move them to "Already Migrated" as they are successfully converted to use ScriptArgumentParser.
+
+### COMMON Scripts (Manual argparse → ScriptArgumentParser):
+- [ ] `clean.py` - Clean utility for removing unwanted files and empty folders
+- [ ] `scan.py` - Directory scanning and analysis utility
+- [ ] `space.py` - Disk space analysis tool
+
+### EXIF Scripts (Manual argparse → ScriptArgumentParser):
+- [ ] `analyze.py` - High-performance image organization and date analysis
+- [ ] `delete_dups.py` - Delete duplicate files based on CSV input
+- [ ] `dupgremove.py` - Duplicate removal utility
+- [ ] `dupguru.py` - DupGuru integration utility
+- [ ] `generate.py` - Image generation utility
+- [ ] `migrate_xmp.py` - XMP metadata migration tool
+- [ ] `select.py` - Image selection utility
+- [ ] `set_image_dates.py` - Set image dates from EXIF data
+- [ ] `takeout.py` - Google Takeout processor
+
+### Already Migrated ✅:
+- [x] `COMMON/scripts/diff.py` - Directory comparison utility
+- [x] `EXIF/scripts/find_dups.py` - Duplicate finder
+- [x] `EXIF/scripts/organize.py` - Image organization tool
