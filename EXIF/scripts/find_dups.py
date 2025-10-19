@@ -99,7 +99,7 @@ def main():
     })
     
     # Setup logging with consistent pattern
-    logger = parser.setup_logging(resolved_args, "find_dups_script")
+    logger = parser.setup_logging(resolved_args, "find_dups")
     
     # Display configuration with find_dups-specific labels
     config_map = {

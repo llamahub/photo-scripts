@@ -16,6 +16,7 @@ I prefer you follow these steps:
 4. Ensure that all business logic is encapsulated in a separate class in the appropriate src/exif or src/common module.   If leveraging existing classes, make sure that all existing tests pass after the migration.
 If new classes are created, ensure that they have appropriate unit tests.
 5. Ensure that all audit level info required to understand image processing steps is logged using INFO level logging and can be played back from log files if necessary.
+   **IMPORTANT**: When calling `parser.setup_logging(resolved_args, script_name)`, use the base script name (without extension) as the script_name parameter. For example, for `find_dups.py`, use `"find_dups"`. This ensures log files are named correctly (e.g., `find_dups_20251019_084113.log`) instead of using the generic `argument_parser_*` naming.
 6. Once migrration is complete and tests pass, then remove the old version of the script that was migrated and rename the new migrated script to the original script name so that it replaces the old version seamlessly.
 7. Verify that the new script runs correctly from the command line and that the --help output matches the description at the top of the file.
 8. Make sure all tests pass successfully after migration.

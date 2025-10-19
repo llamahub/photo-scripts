@@ -269,7 +269,18 @@ class ScriptArgumentParser:
         try:
             from common.logging import ScriptLogging
 
-            logger = ScriptLogging.get_script_logger(debug=debug_mode)
+            # Generate proper script name with timestamp if provided
+            if script_name:
+                from datetime import datetime
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                full_script_name = f"{script_name}_{timestamp}"
+            else:
+                full_script_name = None
+
+            logger = ScriptLogging.get_script_logger(
+                name=full_script_name, debug=debug_mode
+            )
         except ImportError:
             # Fallback logging setup
             import logging

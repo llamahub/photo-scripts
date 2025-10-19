@@ -91,6 +91,7 @@ def main():
     })
     
     # Setup logging with consistent pattern
+    # Use script name without extension for proper log file naming
     logger = parser.setup_logging(resolved_args, "example_script")
     
     # Display configuration

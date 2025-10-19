@@ -90,7 +90,8 @@ def main():
     })
     
     # Setup logging with consistent pattern
-    logger = parser.setup_logging(resolved_args, "exif_example_script")
+    # Use script name without extension for proper log file naming
+    logger = parser.setup_logging(resolved_args, "example_script")
     
     # Display configuration with EXIF-specific labels
     config_map = {

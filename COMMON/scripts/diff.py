@@ -336,7 +336,7 @@ def main():
     
     # Setup logging with consistent pattern
     debug_mode = resolved_args.get('verbose') or resolved_args.get('debug')
-    logger = parser.setup_logging(resolved_args, "diff_script")
+    logger = parser.setup_logging(resolved_args, "diff")
     
     # Display configuration with diff-specific labels
     config_map = {

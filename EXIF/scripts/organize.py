@@ -142,7 +142,7 @@ def main():
     
     # Setup logging with consistent pattern
     debug_mode = resolved_args.get('verbose') or resolved_args.get('debug')
-    logger = parser.setup_logging(resolved_args, "organize_script")
+    logger = parser.setup_logging(resolved_args, "organize")
     
     # Display configuration with organize-specific labels
     config_map = {
