@@ -34,7 +34,6 @@ If new classes are created, ensure that they have appropriate unit tests.
 - [ ] `space.py` - Disk space analysis tool
 
 ### EXIF Scripts (Manual argparse → ScriptArgumentParser):
-- [ ] `analyze.py` - High-performance image organization and date analysis
 - [ ] `delete_dups.py` - Delete duplicate files based on CSV input
 - [ ] `dupgremove.py` - Duplicate removal utility
 - [ ] `dupguru.py` - DupGuru integration utility
@@ -47,5 +46,6 @@ If new classes are created, ensure that they have appropriate unit tests.
 ### Already Migrated ✅:
 - [x] `COMMON/scripts/clean.py` - Clean utility for removing unwanted files and empty folders
 - [x] `COMMON/scripts/diff.py` - Directory comparison utility
+- [x] `EXIF/scripts/analyze.py` - High-performance image organization and date analysis
 - [x] `EXIF/scripts/find_dups.py` - Duplicate finder
 - [x] `EXIF/scripts/organize.py` - Image organization tool

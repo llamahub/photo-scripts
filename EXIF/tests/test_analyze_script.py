@@ -65,21 +65,22 @@ class TestAnalyzeScript:
 
         # With the optimized version, target is optional for faster analysis
         assert result.returncode == 0
-        assert "skipped for faster analysis" in result.stdout
+        assert "Analysis Statistics:" in result.stdout
 
     def test_script_named_source_argument(self):
         """Test script works with named --source argument for backward compatibility."""
         result = self.run_script(["--source", self.test_source])
 
         assert result.returncode == 0
-        assert "skipped for faster analysis" in result.stdout
+        assert "Analysis Statistics:" in result.stdout
 
     def test_script_both_source_arguments_error(self):
-        """Test script fails when both positional and named source are provided."""
+        """Test script accepts when both positional and named source are provided."""
         result = self.run_script([self.test_source, "--source", self.test_source])
 
-        assert result.returncode != 0
-        assert "both" in result.stdout.lower()
+        # With ScriptArgumentParser, this now succeeds (takes positional over named)
+        assert result.returncode == 0
+        assert "Analysis Statistics:" in result.stdout
 
     def test_script_nonexistent_source_folder(self):
         """Test script fails gracefully for nonexistent source folder."""
@@ -96,7 +97,7 @@ class TestAnalyzeScript:
         # Just test that the script runs successfully without mocking
         assert result.returncode == 0
         assert "Found" in result.stdout and "images to analyze" in result.stdout
-        assert "Analysis complete" in result.stdout
+        assert "Analysis Statistics:" in result.stdout
 
     def test_script_with_label_argument(self):
         """Test script accepts and processes --label argument."""
@@ -313,8 +314,10 @@ class TestAnalyzeScript:
         # Check that the number of analyzed images is mentioned in the output
         # Since ImageAnalyzer scans recursively, the actual count might include
         # the original self.test_files from setup_method, so let's be more flexible
-        assert "Analyzed" in result.stdout and "images" in result.stdout
-        assert "Analysis complete" in result.stdout
+        assert (
+            "Total images:" in result.stdout and "Successful analyses:" in result.stdout
+        )
+        assert "Analysis Statistics:" in result.stdout
 
         # Verify CSV was created in .log directory
         log_files = [
