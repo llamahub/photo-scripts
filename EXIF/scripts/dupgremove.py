@@ -178,6 +178,7 @@ def main():
         logger.info(f"Delete actions found: {stats['delete_actions']}")
         logger.info(f"Files moved: {stats['files_moved']}")
         logger.info(f"Files not found: {stats['files_not_found']}")
+        logger.info(f"Warnings: {stats['warnings']}")
         logger.info(f"Errors: {stats['errors']}")
         logger.info(f"Rows skipped: {stats['skipped_rows']}")
         

@@ -7,6 +7,7 @@ marked for deletion to a backup directory, preserving folder structure.
 """
 
 import csv
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -43,11 +44,67 @@ class DupGuruRemover:
             'files_moved': 0,
             'files_not_found': 0,
             'errors': 0,
+            'warnings': 0,
             'skipped_rows': 0
         }
         
         # Validate inputs
         self._validate_inputs()
+    
+    def _log_file_only(self, message: str, level: str = "INFO"):
+        """
+        Log a message only to the log file, not to console output.
+        
+        This is useful for detailed file operations that should be auditable
+        but don't need to clutter the console output.
+        
+        Args:
+            message: Message to log
+            level: Log level (INFO, WARNING, ERROR, DEBUG)
+        """
+        if self.logger:
+            # Get the file handler(s) only
+            file_handlers = [h for h in self.logger.handlers if isinstance(h, logging.FileHandler)]
+            
+            if file_handlers:
+                # Temporarily disable console handlers
+                console_handlers = [h for h in self.logger.handlers if not isinstance(h, logging.FileHandler)]
+                
+                # Remove console handlers temporarily
+                for handler in console_handlers:
+                    self.logger.removeHandler(handler)
+                
+                # Log the message
+                log_method = getattr(self.logger, level.lower(), self.logger.info)
+                log_method(message)
+                
+                # Restore console handlers
+                for handler in console_handlers:
+                    self.logger.addHandler(handler)
+            else:
+                # Fallback to regular logging if no file handler found
+                log_method = getattr(self.logger, level.lower(), self.logger.info)
+                log_method(message)
+    
+    def _log_warning_file_only(self, message: str):
+        """
+        Log a warning only to the log file and increment warning counter.
+        
+        Args:
+            message: Warning message to log
+        """
+        self.stats['warnings'] += 1
+        self._log_file_only(message, "WARNING")
+    
+    def _log_error_file_only(self, message: str):
+        """
+        Log an error only to the log file and increment error counter.
+        
+        Args:
+            message: Error message to log
+        """
+        self.stats['errors'] += 1
+        self._log_file_only(message, "ERROR")
     
     def _validate_inputs(self):
         """Validate input parameters."""
@@ -158,8 +215,8 @@ class DupGuruRemover:
                 return most_common[0][0] if most_common else None
                 
         except Exception as e:
-            if self.verbose and self.logger:
-                self.logger.warning(f"Could not detect common base path: {e}")
+            if self.verbose:
+                self._log_warning_file_only(f"Could not detect common base path: {e}")
             return None
     
     def _find_file_in_target(self, folder_path: str, filename: str) -> Optional[Path]:
@@ -230,8 +287,7 @@ class DupGuruRemover:
         """
         try:
             if self.dry_run:
-                if self.logger:
-                    self.logger.info(f"DRY RUN: Would move {source_path} -> {dest_path}")
+                self._log_file_only(f"DRY RUN: Would move {source_path} -> {dest_path}")
                 return True
             
             # Create destination directory
@@ -244,18 +300,15 @@ class DupGuruRemover:
                 stem = dest_path.stem
                 suffix = dest_path.suffix
                 dest_path = dest_path.parent / f"{stem}_{timestamp}{suffix}"
-                if self.logger:
-                    self.logger.warning(f"Destination exists, using: {dest_path}")
+                self._log_warning_file_only(f"Destination exists, using: {dest_path}")
             
             # Move the file
             shutil.move(str(source_path), str(dest_path))
-            if self.logger:
-                self.logger.info(f"Moved: {source_path} -> {dest_path}")
+            self._log_file_only(f"Moved: {source_path} -> {dest_path}")
             return True
             
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Failed to move {source_path}: {e}")
+            self._log_error_file_only(f"Failed to move {source_path}: {e}")
             return False
     
     def process_csv(self):
@@ -292,8 +345,7 @@ class DupGuruRemover:
                             self.stats['files_moved'] += 1
         
         except Exception as e:
-            if self.logger:
-                self.logger.error(f"Error processing CSV: {e}")
+            self._log_error_file_only(f"Error processing CSV: {e}")
             raise
     
     def _process_delete_row(self, row: dict, row_num: int) -> bool:
@@ -317,9 +369,7 @@ class DupGuruRemover:
         source_path = self._find_file_in_target(folder_path, filename)
         if not source_path:
             self.stats['files_not_found'] += 1
-            self.stats['errors'] += 1
-            if self.logger:
-                self.logger.warning(f"Row {row_num}: File not found: {folder_path}/{filename}")
+            self._log_warning_file_only(f"Row {row_num}: File not found: {folder_path}/{filename}")
             return False
         
         # Calculate destination path
@@ -335,6 +385,7 @@ class DupGuruRemover:
         print(f"  Delete actions found: {self.stats['delete_actions']}")
         print(f"  Files moved: {self.stats['files_moved']}")
         print(f"  Files not found: {self.stats['files_not_found']}")
+        print(f"  Warnings: {self.stats['warnings']}")
         print(f"  Errors: {self.stats['errors']}")
         print(f"  Rows skipped: {self.stats['skipped_rows']}")
         

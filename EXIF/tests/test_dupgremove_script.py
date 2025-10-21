@@ -526,13 +526,15 @@ class TestDupGuruRemover:
 
         result = self.run_script(
             [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)],
-            expect_success=False,
-        )  # Expecting failure since file not found
+            expect_success=True,
+        )  # Should succeed even with missing files (warnings, not errors)
 
         # Should skip malformed rows but continue processing
         assert "Rows skipped: 2" in result.stdout
-        # Should fail due to file not found
-        assert result.returncode == 1
+        # Should succeed despite file not found (warning, not error)
+        assert result.returncode == 0
+        # Should report the warning
+        assert "Warnings: 1" in result.stdout
 
     def test_help_message(self):
         """Test help message display."""
