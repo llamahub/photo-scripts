@@ -158,7 +158,7 @@ class TestDupGuruRemover:
 
         # Run script
         self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)]
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)]
         )
 
         # Check that files marked for deletion were moved
@@ -194,7 +194,7 @@ class TestDupGuruRemover:
             [
                 str(self.csv_file),
                 str(self.target_dir),
-                "--dup-path",
+                "--target",
                 str(self.dup_dir),
                 "--dry-run",
             ]
@@ -245,7 +245,7 @@ class TestDupGuruRemover:
 
         # Run script (should complete with error code since no files moved and errors occurred)
         result = self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)],
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)],
             expect_success=False,
         )
 
@@ -274,9 +274,9 @@ class TestDupGuruRemover:
             [
                 "--input",
                 str(self.csv_file),
-                "--target",
+                "--source",
                 str(self.target_dir),
-                "--dup-path",
+                "--target",
                 str(self.dup_dir),
             ]
         )
@@ -292,7 +292,7 @@ class TestDupGuruRemover:
             [
                 str(self.csv_file),
                 str(self.target_dir),
-                "--dup-path",
+                "--target",
                 str(self.dup_dir),
                 "--verbose",
             ]
@@ -310,7 +310,7 @@ class TestDupGuruRemover:
             [
                 str(self.csv_file),
                 str(self.target_dir),
-                "--dup-path",
+                "--target",
                 str(self.dup_dir),
                 "--quiet",
             ]
@@ -386,7 +386,7 @@ class TestDupGuruRemover:
         self.create_test_csv(test_data)
 
         result = self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)]
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)]
         )
 
         assert "Delete actions found: 0" in result.stdout
@@ -425,7 +425,7 @@ class TestDupGuruRemover:
         self.create_test_csv(test_data)
 
         result = self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)]
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)]
         )
 
         # File should be moved successfully
@@ -444,7 +444,7 @@ class TestDupGuruRemover:
         self.create_test_csv()
 
         result = self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)]
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)]
         )
 
         # Both files should exist (original and timestamped version)
@@ -472,7 +472,7 @@ class TestDupGuruRemover:
         self.create_test_csv(test_data)
 
         result = self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)]
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)]
         )
 
         assert "Total rows processed: 0" in result.stdout
@@ -525,7 +525,7 @@ class TestDupGuruRemover:
         self.create_test_csv(test_data)
 
         result = self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)],
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)],
             expect_success=False,
         )  # Expecting failure since file not found
 
@@ -543,8 +543,8 @@ class TestDupGuruRemover:
         assert result.returncode == 0
         assert "Move duplicate files based on dupGuru CSV decisions" in result.stdout
         assert "--input" in result.stdout
+        assert "--source" in result.stdout
         assert "--target" in result.stdout
-        assert "--dup-path" in result.stdout
 
     def test_statistics_output(self):
         """Test statistics reporting."""
@@ -552,7 +552,7 @@ class TestDupGuruRemover:
         self.create_test_csv()
 
         result = self.run_script(
-            [str(self.csv_file), str(self.target_dir), "--dup-path", str(self.dup_dir)]
+            [str(self.csv_file), str(self.target_dir), "--target", str(self.dup_dir)]
         )
 
         # Check for statistics in output
