@@ -96,14 +96,11 @@ class DupGuruRemover:
         """
         Normalize a folder path from the CSV to work with local filesystem.
         
-        Handles Windows-style paths (X:\\santee-images\\...) and maps them to
-        the equivalent Linux paths under /mnt/photo_drive/.
-        
-        Windows: X:\\santee-images\\2020+\\2022\\2022-06\\...
-        Linux:   /mnt/photo_drive/santee-images/2020+/2022/2022-06/...
+        Handles Windows-style paths by removing the drive letter and making them
+        relative to the target directory.
         
         Args:
-            folder_path: Folder path from CSV (Windows-style)
+            folder_path: Folder path from CSV (may be Windows-style)
             
         Returns:
             Normalized path relative to target directory
@@ -111,17 +108,36 @@ class DupGuruRemover:
         # Convert Windows path separators
         normalized = folder_path.replace('\\', '/')
         
-        # Handle Windows drive mapping: X:/... -> /mnt/photo_drive/...
+        # Handle Windows drive paths by removing drive letter
         if ':' in normalized and len(normalized.split(':')[0]) <= 2:
-            # Remove drive letter (X:) and map to /mnt/photo_drive
+            # Remove drive letter (e.g., "X:/santee-images/..." -> "santee-images/...")
             path_without_drive = normalized.split(':', 1)[1].lstrip('/')
-            # Return the path relative to /mnt/photo_drive
-            full_path = Path('/mnt/photo_drive') / path_without_drive
-            # Make it relative to the target directory
-            try:
-                return full_path.relative_to(self.target_path)
-            except ValueError:
-                # If it can't be made relative, return as-is
+            
+            # The CSV path structure should match the target directory structure
+            # For example, if CSV has "X:/santee-images/2020+/..." and target is "/path/to/santee-images"
+            # then we need "2020+/..." relative to the target
+            
+            # Try to find where the CSV path intersects with the target path
+            target_name = self.target_path.name  # e.g., "santee-images"
+            path_parts = Path(path_without_drive).parts
+            
+            # Find the target directory name in the CSV path
+            if target_name in path_parts:
+                # Get everything after the target directory name
+                target_index = path_parts.index(target_name)
+                relative_parts = path_parts[target_index + 1:]
+                relative_path = Path(*relative_parts) if relative_parts else Path('.')
+                self.logger.debug(
+                    f"Normalized '{folder_path}' -> '{relative_path}' "
+                    f"(found target '{target_name}' in path)"
+                )
+                return relative_path
+            else:
+                # Target name not found in path, use the whole path without drive
+                self.logger.debug(
+                    f"Normalized '{folder_path}' -> '{path_without_drive}' "
+                    f"(target name not in path)"
+                )
                 return Path(path_without_drive)
         else:
             # Remove leading slashes for any other format
