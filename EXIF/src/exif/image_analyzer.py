@@ -159,18 +159,22 @@ class ImageAnalyzer(ImageData):
             return {}
 
         try:
-            # Single ExifTool call for entire batch
-            cmd = [
-                "exiftool",
-                "-j",
-                "-DateTimeOriginal",
-                "-ExifIFD:DateTimeOriginal",
-                "-XMP-photoshop:DateCreated",
-                "-FileModifyDate",
+            # Build exiftool command with all date fields from centralized priority
+            cmd = ["exiftool", "-j"]
+            
+            # Add all date fields from centralized priority
+            for field in self.get_date_field_priority():
+                cmd.append(f"-{field}")
+            
+            # Add other metadata fields
+            cmd.extend([
                 "-FileTypeExtension",
-                "-ImageWidth",
+                "-ImageWidth", 
                 "-ImageHeight",
-            ] + file_batch
+            ])
+            
+            # Add file paths
+            cmd.extend(file_batch)
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
@@ -311,16 +315,11 @@ class ImageAnalyzer(ImageData):
         return results
 
     def _getImageDate_cached(self, filepath, exif_data):
-        """Get image date using cached EXIF data."""
+        """Get image date using cached EXIF data with same priority as ImageData.getImageDate()."""
         import re
 
-        # Check EXIF fields in priority order
-        for key in [
-            "DateTimeOriginal",
-            "ExifIFD:DateTimeOriginal",
-            "XMP-photoshop:DateCreated",
-            "FileModifyDate",
-        ]:
+        # Use centralized date field priority from ImageData
+        for key in self.get_date_field_priority():
             if key in exif_data and exif_data[key]:
                 dt = exif_data[key]
                 dt = re.sub(

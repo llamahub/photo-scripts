@@ -171,19 +171,8 @@ class ImageData:
     @classmethod
     def getImageDate(cls, filepath):
         meta = cls.get_exif(filepath)
-        # Try date fields in order of preference (for both images and videos)
-        for key in [
-            "DateTimeOriginal",
-            "ExifIFD:DateTimeOriginal",
-            "XMP-photoshop:DateCreated",
-            "CreateDate",
-            "MediaCreateDate",
-            "TrackCreateDate",
-            "ModifyDate",
-            "MediaModifyDate",
-            "TrackModifyDate",
-            "FileModifyDate",
-        ]:
+        # Try date fields in canonical priority order
+        for key in cls.get_date_field_priority():
             if key in meta and meta[key]:
                 dt = meta[key]
                 dt = re.sub(
@@ -262,6 +251,50 @@ class ImageData:
             m = re.search(pat, base)  # Use re.search instead of re.match
             if m:
                 return cls.normalize_date(func(m))
+
+        return "1900-01-01 00:00"
+
+    @classmethod
+    def get_date_field_priority(cls):
+        """
+        Get the canonical priority list for EXIF date fields.
+        
+        This ensures all date extraction methods use the same priority order.
+        
+        Returns:
+            list: EXIF field names in order of preference (highest to lowest priority)
+        """
+        return [
+            "DateTimeOriginal",
+            "ExifIFD:DateTimeOriginal",
+            "XMP-photoshop:DateCreated",
+            "CreateDate",
+            "MediaCreateDate",
+            "TrackCreateDate",
+            "ModifyDate",
+            "MediaModifyDate",
+            "TrackModifyDate",
+            "FileModifyDate",
+        ]
+
+    @classmethod
+    def getImageDate(cls, filepath):
+        meta = cls.get_exif(filepath)
+        # Try date fields in canonical priority order
+        for key in cls.get_date_field_priority():
+            if key in meta and meta[key]:
+                dt = meta[key]
+                dt = re.sub(
+                    r"^(\d{4})[:_-](\d{2})[:_-](\d{2})[ T_]?(\d{2})?:?(\d{2})?:?(\d{2})?",
+                    r"\1-\2-\3 \4:\5:\6",
+                    dt,
+                )
+                return cls.normalize_date(dt)
+
+        # Try to extract date from filename as fallback
+        filename_date = cls.getFilenameDate(filepath)
+        if filename_date != "1900-01-01 00:00":
+            return filename_date
 
         return "1900-01-01 00:00"
 
