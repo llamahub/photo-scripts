@@ -346,15 +346,16 @@ class FolderSplitter:
                     self._show_progress()
                     
                     try:
-                        self.split_folder(item)
+                        was_split = self.split_folder(item)
                     except Exception as e:
                         if self.logger:
                             self.logger.error(f"Error processing folder {item}: {e}")
                         self.stats['errors'] += 1
+                        was_split = False
                     
                     # Recursively scan subdirectories
                     # Only recurse if the folder wasn't split (to avoid scanning newly created subfolders)
-                    if item.exists():  # Make sure folder still exists (wasn't renamed or moved)
+                    if not was_split and item.exists():  # Don't recurse into split folders
                         try:
                             self._scan_recursively(item)
                         except Exception as e:
