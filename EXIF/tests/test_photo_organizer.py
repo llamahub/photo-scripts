@@ -639,11 +639,11 @@ class TestPhotoOrganizer:
         ).exists()
         assert organizer.stats.get("sidecars_copied", 0) == 4
 
-    def test_handle_all_sidecars_no_parent_folder_mode(self, temp_dirs):
-        """Test sidecar handling with no_parent_folder mode."""
+    def test_handle_all_sidecars_month_only_mode(self, temp_dirs):
+        """Test sidecar handling with month_only mode."""
         source_dir, target_dir = temp_dirs
         organizer = PhotoOrganizer(
-            source_dir, target_dir, no_parent_folder=True, dry_run=False
+            source_dir, target_dir, month_only_mode=True, dry_run=False
         )
 
         # Create test image and sidecar in subfolder

@@ -4,7 +4,9 @@ Photo Organization Module - Organize photos by date using EXIF metadata
 Contains the PhotoOrganizer class for organizing photos from a source directory
 into a target directory with structured subdirectories based on photo dates.
 
-Target directory structure: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+Target directory structure: 
+  Default: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+  Month-only: <year>-<month>/<filename>
 - <decade>: Decade in format "YYYY+" (e.g., 1990+, 2000+, 2010+)
 - <year>: 4-digit year (e.g., 1995, 2021)
 - <month>: 2-digit month (e.g., 01, 02, 12)
@@ -103,7 +105,7 @@ class PhotoOrganizer:
         move_files: bool = False,
         max_workers: int = None,
         video_mode: bool = False,
-        no_parent_folder: bool = False,
+        month_only_mode: bool = False,
     ):
         """
         Initialize PhotoOrganizer.
@@ -116,7 +118,7 @@ class PhotoOrganizer:
             move_files: If True, move files instead of copying them
             max_workers: Number of parallel workers (default: CPU count)
             video_mode: If True, process video files instead of image files
-            no_parent_folder: If True, skip including parent folder in target path structure
+            month_only_mode: If True, use simplified YYYY-MM structure without decades/parent folders
         """
         self.source = Path(source).resolve()
         self.target = Path(target).resolve()
@@ -125,7 +127,7 @@ class PhotoOrganizer:
         self.move_files = move_files
         self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
         self.video_mode = video_mode
-        self.no_parent_folder = no_parent_folder
+        self.month_only_mode = month_only_mode
 
         # Setup logging
         self._setup_logging()
@@ -317,9 +319,9 @@ class PhotoOrganizer:
         """
         Calculate target path based on image date and source structure.
 
-        Format: <decade>/<year>/<year>-<month>/[<parent folder>/]<filename>
-        - With parent folder (default): <decade>/<year>/<year>-<month>/<parent folder>/<filename>
-        - No parent folder (--no-parent): <decade>/<year>/<year>-<month>/<filename>
+        Format: <decade>/<year>/<year>-<month>/[<parent folder>/]<filename> or <year>-<month>/<filename>
+        - Full hierarchy (default): <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+        - Month only (--month-only): <year>-<month>/<filename>
 
         Args:
             source_file: Source file path
@@ -344,14 +346,14 @@ class PhotoOrganizer:
             month_str = "01"
 
         # Build target path structure
-        decade = self.get_decade_folder(year_int)
         year_month = f"{year}-{month_str}"
 
-        if self.no_parent_folder:
-            # Skip parent folder - go directly to YYYY-MM folder
-            target_path = self.target / decade / year / year_month / source_file.name
+        if self.month_only_mode:
+            # Simplified structure: just YYYY-MM folder
+            target_path = self.target / year_month / source_file.name
         else:
-            # Include parent folder (default behavior)
+            # Full hierarchy (default behavior)
+            decade = self.get_decade_folder(year_int)
             parent_folder = source_file.parent.name
             target_path = (
                 self.target

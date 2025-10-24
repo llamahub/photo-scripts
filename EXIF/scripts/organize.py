@@ -7,7 +7,9 @@
 Organizes photos or videos from a source directory into a target directory with structured
 subdirectories based on dates obtained from EXIF/metadata.
 
-Target directory structure: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+Target directory structure: 
+  Default: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
+  Month-only: <year>-<month>/<filename>
 - <decade>: Decade in format "YYYY+" (e.g., 1990+, 2000+, 2010+)
 - <year>: 4-digit year (e.g., 1995, 2021)
 - <month>: 2-digit month (e.g., 01, 02, 12)
@@ -52,18 +54,18 @@ SCRIPT_INFO = {
 
 Target directory structure:
   Default: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
-  --no-parent: <decade>/<year>/<year>-<month>/<filename>
+  --month-only: <year>-<month>/<filename>
 
 Where:
   - <decade>: Decade in format "YYYY+" (e.g., 1990+, 2000+, 2010+)
   - <year>: 4-digit year (e.g., 1995, 2021)
   - <month>: 2-digit month (e.g., 01, 02, 12)
-  - <parent folder>: Name of immediate parent folder from source (skipped with --no-parent)
+  - <parent folder>: Name of immediate parent folder from source (skipped with --month-only)
   - <filename>: Original filename''',
     'examples': [
         '/path/to/photos /path/to/organized',
         '--source /path/to/photos --target /path/to/organized --dry-run',
-        '/path/to/photos /path/to/organized --move --no-parent --verbose',
+        '/path/to/photos /path/to/organized --move --month-only --verbose',
         '/path/to/videos /path/to/organized --video --workers 8',
         '. run organize tests/test_images .tmp/sorted'
     ]
@@ -94,10 +96,10 @@ SCRIPT_ARGUMENTS = {
         'action': 'store_true',
         'help': 'Process video files instead of image files (supports mp4, mov, avi, mkv, etc.)'
     },
-    'no_parent': {
-        'flag': '--no-parent',
+    'month_only': {
+        'flag': '--month-only',
         'action': 'store_true',
-        'help': 'Skip parent folder in target path - files go directly to YYYY-MM folders'
+        'help': 'Simplified structure: files go directly to YYYY-MM folders without decades/parent folders'
     },
     'debug': {
         'flag': '--debug',
@@ -163,10 +165,10 @@ def main():
         else:
             print("Mode: IMAGE file processing")
         
-        if resolved_args.get('no_parent'):
-            print("Structure: Direct to YYYY-MM folders (no parent folder)")
+        if resolved_args.get('month_only'):
+            print("Structure: Simplified YYYY-MM folders only")
         else:
-            print("Structure: Include parent folder in path")
+            print("Structure: Full hierarchy with decades and parent folders")
         
         if resolved_args.get('workers'):
             print(f"Workers: {resolved_args['workers']} parallel threads")
@@ -182,7 +184,7 @@ def main():
         logger.info(f"Target: {resolved_args['target_dir']}")
         logger.info(f"Mode: {'MOVE' if resolved_args.get('move') else 'COPY'}")
         logger.info(f"File type: {'VIDEO' if resolved_args.get('video') else 'IMAGE'}")
-        logger.info(f"Structure: {'No parent' if resolved_args.get('no_parent') else 'Include parent'}")
+        logger.info(f"Structure: {'Month only' if resolved_args.get('month_only') else 'Full hierarchy'}")
         
         organizer = PhotoOrganizer(
             source=resolved_args['source_dir'],
@@ -192,7 +194,7 @@ def main():
             move_files=resolved_args.get('move', False),
             max_workers=resolved_args.get('workers'),
             video_mode=resolved_args.get('video', False),
-            no_parent_folder=resolved_args.get('no_parent', False)
+            month_only_mode=resolved_args.get('month_only', False)
         )
         
         logger.info("Starting photo organization process")

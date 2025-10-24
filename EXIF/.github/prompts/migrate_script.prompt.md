@@ -157,4 +157,5 @@ If new classes are created, ensure that they have appropriate unit tests.
 - [x] `EXIF/scripts/analyze.py` - High-performance image organization and date analysis
 - [x] `EXIF/scripts/dupgremove.py` - Duplicate removal utility
 - [x] `EXIF/scripts/find_dups.py` - Duplicate finder
+- [x] `EXIF/scripts/move_folders.py` - Move files between folders based on CSV instructions
 - [x] `EXIF/scripts/organize.py` - Image organization tool

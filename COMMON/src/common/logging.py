@@ -22,7 +22,7 @@ class LoggingConfig:
 
     @staticmethod
     def setup_logging(
-        config: BaseConfig, project_name: str = "common", log_dir: Optional[Path] = None
+        config: Any, project_name: str = "common", log_dir: Optional[Path] = None
     ) -> Logger:
         """Setup logging for a project.
 
@@ -117,7 +117,9 @@ class ScriptLogging:
         name: Optional[str] = None,
         log_dir: Optional[Path] = None,
         debug: bool = False,
-        config: Optional[BaseConfig] = None,
+        config: Optional[Any] = None,
+        console_level: int = logging.INFO,
+        file_level: int = logging.DEBUG,
     ) -> Logger:
         """Get a logger configured for standalone scripts.
 
@@ -136,7 +138,6 @@ class ScriptLogging:
         # Auto-generate name from calling script if not provided
         if name is None:
             import inspect
-            import os
             from datetime import datetime
 
             # Get the calling frame (script that called this function)
@@ -183,8 +184,9 @@ class ScriptLogging:
                 config = FallbackConfig()
 
         # Create logger
+
         logger = logging.getLogger(name)
-        logger.setLevel(logging.DEBUG if debug else logging.INFO)
+        logger.setLevel(logging.DEBUG)
 
         # Clear any existing handlers to avoid duplicates
         logger.handlers.clear()
@@ -199,13 +201,13 @@ class ScriptLogging:
 
         # Console handler
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+        console_handler.setLevel(console_level)
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
         # File handler
         file_handler = logging.FileHandler(log_file, mode="a")
-        file_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+        file_handler.setLevel(file_level)
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 

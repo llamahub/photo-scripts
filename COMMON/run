@@ -18,16 +18,15 @@ fi
 SCRIPT_NAME="$1"
 shift  # Remove the first argument, leaving the rest as additional args
 
-# Combine all remaining arguments into a single string
-SCRIPT_ARGS="$*"
-
 # Source the environment if activate.sh exists
 if [ -f "activate.sh" ]; then
     source activate.sh
 fi
 
-# Execute the invoke command
-if [ -n "$SCRIPT_ARGS" ]; then
+# Execute the invoke command with proper argument handling
+if [ $# -gt 0 ]; then
+    # Use printf to properly escape arguments, then pass as single string
+    SCRIPT_ARGS=$(printf '%q ' "$@")
     invoke run --script "$SCRIPT_NAME" --args "$SCRIPT_ARGS"
 else
     invoke run --script "$SCRIPT_NAME" --args ""
