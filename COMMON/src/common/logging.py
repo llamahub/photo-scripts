@@ -1,3 +1,18 @@
+import logging
+import sys
+
+# Add custom AUDIT log level between DEBUG (10) and INFO (20)
+AUDIT_LEVEL = 15
+logging.addLevelName(AUDIT_LEVEL, "AUDIT")
+
+
+def audit(self, message, *args, **kwargs):
+    if self.isEnabledFor(AUDIT_LEVEL):
+        self._log(AUDIT_LEVEL, message, args, **kwargs)
+
+
+logging.Logger.audit = audit
+logging.Logger.audit = audit
 """Common logging framework for all projects."""
 
 import logging
@@ -199,17 +214,42 @@ class ScriptLogging:
             config.log_format, datefmt="%Y-%m-%d %H:%M:%S"
         )
 
-        # Console handler
-        console_handler = logging.StreamHandler()
+        # Add custom AUDIT log level between DEBUG (10) and INFO (20)
+        AUDIT_LEVEL = 15
+        logging.addLevelName(AUDIT_LEVEL, "AUDIT")
+
+        def audit(self, message, *args, **kwargs):
+            if self.isEnabledFor(AUDIT_LEVEL):
+                self._log(AUDIT_LEVEL, message, args, **kwargs)
+
+        logging.Logger.audit = audit
+
+        # Console handler (INFO and above)
+        console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(console_level)
+        console_handler.addFilter(lambda record: record.levelno >= logging.INFO)
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
-        # File handler
+        # File handler (DEBUG and above, including AUDIT)
         file_handler = logging.FileHandler(log_file, mode="a")
         file_handler.setLevel(file_level)
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
+
+        # Usage:
+        # - Use logger.audit("...") for single folder/file/image transactions (goes only to log file)
+        # - Use logger.info("...") for summary/progress (goes to stdout and log file)
+
+        # Add header with log file info
+        logger.info("=" * 80)
+        logger.info(f"LOG FILE: {log_file}")
+        logger.info(f"SCRIPT: {name}")
+        logger.info(f"DEBUG MODE: {debug}")
+        logger.info("=" * 80)
+
+        logger.info(f"Script logging initialized for {name} (debug: {debug})")
+        return logger
 
         # Add header with log file info
         logger.info("=" * 80)

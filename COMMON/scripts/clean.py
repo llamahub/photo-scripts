@@ -258,9 +258,36 @@ def main():
         'target_path': ['target']
     })
     
-    # Setup logging with consistent pattern
-    # Use script name without extension for proper log file naming
-    logger = parser.setup_logging(resolved_args, "clean")
+    # Setup logging with three handlers: stdout (INFO+), stderr (WARNING+), file (DEBUG+)
+    import logging
+    log_dir = Path('.log')
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / 'clean.log'
+
+    logger = logging.getLogger('clean')
+    logger.setLevel(logging.DEBUG)
+    logger.handlers.clear()
+
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    # Console handler for stdout (INFO and above)
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.INFO)
+    stdout_handler.addFilter(lambda record: record.levelno == logging.INFO)
+    stdout_handler.setFormatter(formatter)
+    logger.addHandler(stdout_handler)
+
+    # Console handler for stderr (WARNING and above)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(formatter)
+    logger.addHandler(stderr_handler)
+
+    # File handler for all logs (DEBUG and above)
+    file_handler = logging.FileHandler(log_file, mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
     
     # Display configuration with clean-specific labels
     config_map = {

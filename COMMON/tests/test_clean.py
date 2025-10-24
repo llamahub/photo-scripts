@@ -318,9 +318,9 @@ class TestCleanScript:
         )
 
         assert result.returncode == 0
-        assert "DRY RUN MODE" in result.stderr
-        assert "Would remove" in result.stderr
-        assert ".DS_Store" in result.stderr
+        assert "DRY RUN MODE" in result.stdout
+        assert "Would remove" in result.stdout
+        assert ".DS_Store" in result.stdout
 
         # File should still exist
         assert (temp_test_dir / ".DS_Store").exists()
@@ -334,7 +334,7 @@ class TestCleanScript:
         )
 
         assert result.returncode == 0
-        assert "Cleaning completed successfully" in result.stderr
+        assert "Cleaning completed successfully" in result.stdout
 
         # Log file should be removed
         assert not (temp_test_dir / "test.log").exists()
@@ -348,7 +348,7 @@ class TestCleanScript:
         )
 
         assert result.returncode == 0
-        assert "Cleaning completed successfully" in result.stderr
+        assert "Cleaning completed successfully" in result.stdout
 
         # Empty directory should be removed
         assert not (temp_test_dir / "empty_dir").exists()
@@ -370,8 +370,8 @@ class TestCleanScript:
         )
 
         assert result.returncode == 0
-        assert "DRY RUN MODE" in result.stderr
-        assert "CLEANING SUMMARY" in result.stderr
+        assert "DRY RUN MODE" in result.stdout
+        assert "CLEANING SUMMARY" in result.stdout
 
     def test_script_debug_mode(self, script_path, temp_test_dir):
         """Test script with verbose mode enabled."""

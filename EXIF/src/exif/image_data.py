@@ -258,9 +258,9 @@ class ImageData:
     def get_date_field_priority(cls):
         """
         Get the canonical priority list for EXIF date fields.
-        
+
         This ensures all date extraction methods use the same priority order.
-        
+
         Returns:
             list: EXIF field names in order of preference (highest to lowest priority)
         """

@@ -4,7 +4,7 @@ Photo Organization Module - Organize photos by date using EXIF metadata
 Contains the PhotoOrganizer class for organizing photos from a source directory
 into a target directory with structured subdirectories based on photo dates.
 
-Target directory structure: 
+Target directory structure:
   Default: <decade>/<year>/<year>-<month>/<parent folder>/<filename>
   Month-only: <year>-<month>/<filename>
 - <decade>: Decade in format "YYYY+" (e.g., 1990+, 2000+, 2010+)

@@ -1,5 +1,5 @@
 import os
-from src.common.config import BaseConfig, load_config, ProjectConfig
+from common.config import BaseConfig, load_config, ProjectConfig
 
 
 def test_base_config_defaults():

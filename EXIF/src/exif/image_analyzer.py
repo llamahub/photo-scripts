@@ -161,18 +161,20 @@ class ImageAnalyzer(ImageData):
         try:
             # Build exiftool command with all date fields from centralized priority
             cmd = ["exiftool", "-j"]
-            
+
             # Add all date fields from centralized priority
             for field in self.get_date_field_priority():
                 cmd.append(f"-{field}")
-            
+
             # Add other metadata fields
-            cmd.extend([
-                "-FileTypeExtension",
-                "-ImageWidth", 
-                "-ImageHeight",
-            ])
-            
+            cmd.extend(
+                [
+                    "-FileTypeExtension",
+                    "-ImageWidth",
+                    "-ImageHeight",
+                ]
+            )
+
             # Add file paths
             cmd.extend(file_batch)
 
