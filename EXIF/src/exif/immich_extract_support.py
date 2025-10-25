@@ -35,14 +35,102 @@ class ImmichAPI:
 class ExifToolManager:
 
     @staticmethod
-    def update_exif(file_path, description, tags, dry_run=False, date_exif=None, skip_if_unchanged=False):
-        # Minimal implementation for test compatibility
+    def update_exif(file_path, description, tags, dry_run=False, date_exif=None, skip_if_unchanged=False, logger=None):
         if not os.path.exists(file_path):
+            if logger:
+                logger.error(f"File does not exist: {file_path}")
             return "error"
+
+
+        # Determine file extension (case-insensitive)
+        ext = os.path.splitext(file_path)[1].lower()
+        is_heic = ext in ['.heic', '.heif']
+
+        # Read current EXIF data, including Subject for HEIC
+        exiftool_args = [
+            'exiftool',
+            '-j',
+            '-Description',
+            '-DateTimeOriginal',
+        ]
+        if is_heic:
+            exiftool_args.append('-Subject')
+        else:
+            exiftool_args.append('-Keywords')
+        exiftool_args.append(file_path)
+        try:
+            result = subprocess.run(exiftool_args, capture_output=True, text=True, check=True)
+            exif_data = json.loads(result.stdout)[0] if result.stdout else {}
+        except Exception as e:
+            if logger:
+                logger.error(f"Error reading EXIF from {file_path}: {e}")
+            return "error"
+
+        # Normalize tags/keywords for comparison
+        def norm_tags(val):
+            if isinstance(val, list):
+                return sorted([str(t).strip() for t in val])
+            if isinstance(val, str):
+                return sorted([t.strip() for t in val.split(',') if t.strip()])
+            return []
+
+        current_desc = exif_data.get('Description', '').strip()
+        if is_heic:
+            current_tags = norm_tags(exif_data.get('Subject', []))
+        else:
+            current_tags = norm_tags(exif_data.get('Keywords', []))
+        current_date = exif_data.get('DateTimeOriginal', '').strip()
+        target_tags = norm_tags(tags)
+        target_desc = (description or '').strip()
+        target_date = (date_exif or '').strip()
+
+        if logger:
+            logger.debug(f"EXIF compare for {file_path}:")
+            logger.debug(f"  Current Description: '{current_desc}'")
+            logger.debug(f"  Target  Description: '{target_desc}'")
+            logger.debug(f"  Current Tags: {current_tags}")
+            logger.debug(f"  Target  Tags: {target_tags}")
+            logger.debug(f"  Current DateTimeOriginal: '{current_date}'")
+            logger.debug(f"  Target  DateTimeOriginal: '{target_date}'")
+
+        unchanged = (
+            current_desc == target_desc and
+            current_tags == target_tags and
+            (not target_date or current_date == target_date)
+        )
+
+        if skip_if_unchanged and unchanged:
+            if logger:
+                logger.info(f"Skipping update for {file_path}: EXIF already matches.")
+            return "skipped"
+
         if dry_run:
+            if logger:
+                logger.info(f"Would update EXIF for {file_path} (dry run)")
             return "updated"
-        # In real use, would call exiftool, but for test, just return 'updated'
-        return "updated"
+
+        # Build exiftool command for update
+        cmd = ['exiftool', '-overwrite_original']
+        if description is not None:
+            cmd += [f'-Description={description}']
+        if tags:
+            for tag in target_tags:
+                if is_heic:
+                    cmd += [f'-Subject={tag}']
+                else:
+                    cmd += [f'-Keywords={tag}']
+        if date_exif:
+            cmd += [f'-DateTimeOriginal={date_exif}']
+        cmd.append(file_path)
+        try:
+            subprocess.run(cmd, capture_output=True, check=True)
+            if logger:
+                logger.info(f"Updated EXIF for {file_path}")
+            return "updated"
+        except Exception as e:
+            if logger:
+                logger.error(f"Error updating EXIF for {file_path}: {e}")
+            return "error"
     @staticmethod
     def check_exiftool():
         try:

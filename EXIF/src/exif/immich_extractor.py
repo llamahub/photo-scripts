@@ -242,13 +242,13 @@ class ImmichExtractor:
             current_file_for_fuzzy['path'] = abs_image_path
             fuzzy_this_file['fuzzy'] = False
             result = ExifToolManager.update_exif(
-                image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=True
+                image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=True, logger=self.logger
             )
             if result == 'skipped' and self.force_update_fuzzy and fuzzy_this_file['fuzzy']:
                 status = 'fuzzy_forced'
                 self.logger.audit(f"{log_path} : {status}")
                 result = ExifToolManager.update_exif(
-                    image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=False
+                    image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=False, logger=self.logger
                 )
             elif result == 'skipped' and fuzzy_this_file['fuzzy']:
                 status = 'fuzzy_skipped'

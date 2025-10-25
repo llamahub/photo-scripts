@@ -77,6 +77,50 @@ class TestImmichAPI(unittest.TestCase):
 
 
 class TestExifToolManager(unittest.TestCase):
+
+    @patch("exif.immich_extract_support.os.path.exists", return_value=True)
+    def test_update_exif_heic_subject(self, mock_exists):
+        # Simulate exiftool returning Subject for HEIC (tags match)
+        with patch("exif.immich_extract_support.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout='[{"Description": "desc", "Subject": ["tag1", "tag2"], "DateTimeOriginal": "2020:01:01 12:00:00"}]', returncode=0),
+            ]
+            result = ExifToolManager.update_exif(
+                "file.HEIC", "desc", ["tag1", "tag2"], dry_run=False, date_exif="2020:01:01 12:00:00", skip_if_unchanged=True
+            )
+            self.assertEqual(result, "skipped")
+        # Simulate exiftool returning Subject for HEIC (tags differ, triggers update)
+        with patch("exif.immich_extract_support.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout='[{"Description": "desc", "Subject": ["tag1"], "DateTimeOriginal": "2020:01:01 12:00:00"}]', returncode=0),
+                MagicMock(returncode=0),  # update call
+            ]
+            result = ExifToolManager.update_exif(
+                "file.heic", "desc", ["tag1", "tag2"], dry_run=False, date_exif="2020:01:01 12:00:00", skip_if_unchanged=True
+            )
+            self.assertEqual(result, "updated")
+
+    @patch("exif.immich_extract_support.os.path.exists", return_value=True)
+    def test_update_exif_jpeg_keywords(self, mock_exists):
+        # Simulate exiftool returning Keywords for JPEG (tags match)
+        with patch("exif.immich_extract_support.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout='[{"Description": "desc", "Keywords": ["tag1", "tag2"], "DateTimeOriginal": "2020:01:01 12:00:00"}]', returncode=0),
+            ]
+            result = ExifToolManager.update_exif(
+                "file.jpg", "desc", ["tag1", "tag2"], dry_run=False, date_exif="2020:01:01 12:00:00", skip_if_unchanged=True
+            )
+            self.assertEqual(result, "skipped")
+        # Simulate exiftool returning Keywords for JPEG (tags differ, triggers update)
+        with patch("exif.immich_extract_support.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout='[{"Description": "desc", "Keywords": ["tag1"], "DateTimeOriginal": "2020:01:01 12:00:00"}]', returncode=0),
+                MagicMock(returncode=0),  # update call
+            ]
+            result = ExifToolManager.update_exif(
+                "file.JPG", "desc", ["tag1", "tag2"], dry_run=False, date_exif="2020:01:01 12:00:00", skip_if_unchanged=True
+            )
+            self.assertEqual(result, "updated")
     @patch("exif.immich_extract_support.subprocess.run")
     def test_check_exiftool_success(self, mock_run):
         mock_run.return_value.returncode = 0
@@ -93,13 +137,15 @@ class TestExifToolManager(unittest.TestCase):
         )
         self.assertEqual(result, "error")
 
-    @patch("exif.immich_extract_support.subprocess.run")
     @patch("exif.immich_extract_support.os.path.exists", return_value=True)
-    def test_update_exif_dry_run(self, mock_exists, mock_run):
-        result = ExifToolManager.update_exif(
-            "file.jpg", "desc", ["tag"], dry_run=True
-        )
-        self.assertEqual(result, "updated")
+    def test_update_exif_dry_run(self, mock_exists):
+        # Simulate exiftool returning Keywords for JPEG
+        with patch("exif.immich_extract_support.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout='[{"Description": "desc", "Keywords": ["tag"], "DateTimeOriginal": "2020:01:01 12:00:00"}]', returncode=0)
+            result = ExifToolManager.update_exif(
+                "file.jpg", "desc", ["tag"], dry_run=True
+            )
+            self.assertEqual(result, "updated")
 
 
 class TestFindImageFile(unittest.TestCase):
