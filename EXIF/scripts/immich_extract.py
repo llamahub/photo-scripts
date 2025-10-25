@@ -42,11 +42,10 @@ SCRIPT_ARGUMENTS = {
         'flag': '--album',
         'help': 'Immich album ID'
     },
-    'search_paths': {
-        'flag': '--search-paths',
-        'nargs': '+',
+    'search_path': {
+        'flag': '--search-path',
         'required': True,
-        'help': 'Paths to search for image files'
+        'help': 'Path to search for image files'
     },
     'updated_after': {
         'flag': '--updatedAfter',
@@ -103,9 +102,9 @@ def main():
         parser.error("You cannot specify both --album and --search.")
 
     # Validate and resolve required arguments
-    # Only require search_paths for both modes
+    # Only require search_path for both modes
     resolved_args = parser.validate_required_args(args, {
-        'search_paths': ['search_paths']
+        'search_path': ['search_path']
     })
 
     # Additional fast validation for --search mode: require --updatedAfter
@@ -140,7 +139,7 @@ def main():
 
     # Display configuration for audit
     config_map = {
-        'search_paths': 'Paths to search for image files',
+        'search_path': 'Path to search for image files',
         'album': 'Immich album ID',
         'search': 'Use search API',
         'updated_after': 'Only process assets updated after this ISO date/time',
@@ -164,10 +163,14 @@ def main():
         logger.info("")
 
     # Call business logic, passing the logger instance
+    # Pass a single search_path (first configured path) to the business logic which now
+    # expects a single search_path string. Keep CLI argument --search-paths backwards-compatible.
+    first_search_path = resolved_args.get('search_path')
+
     extractor = ImmichExtractor(
         url=url,
         api_key=api_key,
-        search_paths=resolved_args['search_paths'],
+        search_path=first_search_path,
         album=resolved_args.get('album'),
         search=resolved_args.get('search', False),
         updated_after=resolved_args.get('updated_after'),
@@ -178,8 +181,7 @@ def main():
         force_update_fuzzy=resolved_args.get('force_update_fuzzy', False),
         logger=logger
     )
-    result = extractor.run()
-    # Log summary output instead of printing
+    result = extractor.run()    # Log summary output including grouped AUDIT status counts
     if result and isinstance(result, dict):
         logger.info("\n" + ("="*50))
         logger.info("SUMMARY")
@@ -189,11 +191,14 @@ def main():
         logger.info(f"Skipped: {result.get('skipped_count', 0)}")
         logger.info(f"Fuzzy datetime matches: {result.get('fuzzy_match_count', 0)}")
         logger.info(f"Errors: {result.get('error_count', 0)}")
-        error_files = result.get('error_files', [])
-        if error_files:
-            logger.info("\nError details:")
-            for ef in error_files:
-                logger.info(f"  - {ef}")
+        # Grouped AUDIT status summary
+        audit_status_counts = result.get('audit_status_counts', {})
+        if audit_status_counts:
+            logger.info("\nAUDIT STATUS SUMMARY:")
+            logger.info("---------------------")
+            for status, count in sorted(audit_status_counts.items()):
+                logger.info(f"  {status:15}: {count}")
+        # Removed 'Error details' section from summary output
         if resolved_args.get("dry_run"):
             logger.info("\nThis was a dry run. No files were actually modified.")
 

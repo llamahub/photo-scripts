@@ -6,11 +6,26 @@ from typing import List, Optional
 from .immich_config import ImmichConfig
 from .immich_extract_support import ImmichAPI, ExifToolManager, find_image_file
 
+
 class ImmichExtractor:
-    def __init__(self, url: str, api_key: str, search_paths: List[str], album: Optional[str] = None, search: bool = False, updated_after: Optional[str] = None, search_archive: bool = False, refresh_album_cache: bool = False, use_album_cache: bool = False, dry_run: bool = False, force_update_fuzzy: bool = False, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        url: str,
+        api_key: str,
+        search_path: str,
+        album: Optional[str] = None,
+        search: bool = False,
+        updated_after: Optional[str] = None,
+        search_archive: bool = False,
+        refresh_album_cache: bool = False,
+        use_album_cache: bool = False,
+        dry_run: bool = False,
+        force_update_fuzzy: bool = False,
+        logger: Optional[logging.Logger] = None,
+    ):
         self.url = url
         self.api_key = api_key
-        self.search_paths = search_paths
+        self.search_path = search_path
         self.album = album
         self.search = search
         self.updated_after = updated_after
@@ -23,18 +38,21 @@ class ImmichExtractor:
         self.api = ImmichAPI(url, api_key)
         # Try to get log file path from logger handlers
         self.log_path = None
-        if self.logger and hasattr(self.logger, 'handlers'):
+        if self.logger and hasattr(self.logger, "handlers"):
             for h in self.logger.handlers:
                 if isinstance(h, logging.FileHandler):
-                    self.log_path = getattr(h, 'baseFilename', None)
+                    self.log_path = getattr(h, "baseFilename", None)
                     break
 
     def run(self):
         self.logger.debug("Entered ImmichExtractor.run()")
+        self.logger.debug(
+            f"ImmichExtractor configuration: search_path={self.search_path!r}, album={self.album!r}, search={self.search}, updated_after={self.updated_after!r}"
+        )
         # Album cache logic
-        cache_dir = Path('.log')
+        cache_dir = Path(".log")
         cache_dir.mkdir(exist_ok=True)
-        album_cache_path = cache_dir / 'immich_album_cache.json'
+        album_cache_path = cache_dir / "immich_album_cache.json"
         album_cache = {}
         need_refresh = self.refresh_album_cache or not album_cache_path.exists()
         self.logger.debug(
@@ -44,10 +62,12 @@ class ImmichExtractor:
         if not need_refresh and self.use_album_cache:
             try:
                 self.logger.debug("Loading album cache from file...")
-                with open(album_cache_path, 'r') as f:
+                with open(album_cache_path, "r") as f:
                     album_cache = json.load(f)
             except Exception as e:
-                self.logger.info(f"Could not load album cache: {e}. Will refresh from Immich.")
+                self.logger.info(
+                    f"Could not load album cache: {e}. Will refresh from Immich."
+                )
                 need_refresh = True
         if need_refresh:
             self.logger.info("Fetching all albums from Immich to build album cache...")
@@ -55,59 +75,66 @@ class ImmichExtractor:
             self.logger.debug(f"Got {len(albums)} albums from Immich.")
             asset_to_albums = {}
             for album in albums:
-                album_name = album.get('albumName', '').strip()
-                album_id = album.get('id')
+                album_name = album.get("albumName", "").strip()
+                album_id = album.get("id")
                 if not album_id:
                     continue
                 self.logger.debug(f"Fetching assets for album_id={album_id}")
                 album_assets = self.api.get_album_assets(album_id)
-                self.logger.debug(f"Got {len(album_assets)} assets for album_id={album_id}")
+                self.logger.debug(
+                    f"Got {len(album_assets)} assets for album_id={album_id}"
+                )
                 for asset in album_assets:
-                    aid = asset.get('id')
+                    aid = asset.get("id")
                     if aid:
                         asset_to_albums.setdefault(aid, set()).add(album_name)
-            album_cache = {aid: sorted(list(names)) for aid, names in asset_to_albums.items()}
-            with open(album_cache_path, 'w') as f:
+            album_cache = {
+                aid: sorted(list(names)) for aid, names in asset_to_albums.items()
+            }
+            with open(album_cache_path, "w") as f:
                 json.dump(album_cache, f, indent=2)
             self.logger.info(f"Album cache written to {album_cache_path}")
         else:
             self.logger.info(f"Using album cache from {album_cache_path}")
-            with open(album_cache_path, 'r') as f:
+            with open(album_cache_path, "r") as f:
                 album_cache = json.load(f)
 
         self.logger.debug(f"Album cache loaded with {len(album_cache)} asset entries.")
+        self.logger.debug("Entering asset selection phase (search=%s)." % self.search)
         # Asset search or album fetch
         if self.search:
             self.logger.info("Searching assets via /api/search/metadata...")
             search_payload = {}
             if self.updated_after:
-                search_payload['updatedAfter'] = self.updated_after
-            search_payload['withExif'] = True
+                search_payload["updatedAfter"] = self.updated_after
+            search_payload["withExif"] = True
             if self.search_archive:
-                search_payload['isArchived'] = True
+                search_payload["isArchived"] = True
             page = 1
             assets = []
             asset_count = 0
             while True:
-                search_payload['page'] = page
-                resp = self.api.session.post(f"{self.api.base_url}/api/search/metadata", json=search_payload)
+                search_payload["page"] = page
+                resp = self.api.session.post(
+                    f"{self.api.base_url}/api/search/metadata", json=search_payload
+                )
                 resp.raise_for_status()
                 assets_raw = resp.json()
-                while isinstance(assets_raw, dict) and 'data' in assets_raw:
-                    assets_raw = assets_raw['data']
-                if isinstance(assets_raw, dict) and 'assets' in assets_raw:
-                    assets_obj = assets_raw['assets']
+                while isinstance(assets_raw, dict) and "data" in assets_raw:
+                    assets_raw = assets_raw["data"]
+                if isinstance(assets_raw, dict) and "assets" in assets_raw:
+                    assets_obj = assets_raw["assets"]
                     if (
                         isinstance(assets_obj, dict)
-                        and 'items' in assets_obj
-                        and isinstance(assets_obj['items'], list)
+                        and "items" in assets_obj
+                        and isinstance(assets_obj["items"], list)
                     ):
-                        assets.extend(assets_obj['items'])
-                        asset_count += len(assets_obj['items'])
+                        assets.extend(assets_obj["items"])
+                        asset_count += len(assets_obj["items"])
                         if asset_count % 10000 == 0:
                             self.logger.info(f"Fetched {asset_count} assets so far...")
-                        if assets_obj.get('nextPage'):
-                            page = int(assets_obj.get('nextPage'))
+                        if assets_obj.get("nextPage"):
+                            page = int(assets_obj.get("nextPage"))
                         else:
                             break
                     elif isinstance(assets_obj, list):
@@ -115,28 +142,32 @@ class ImmichExtractor:
                         asset_count += len(assets_obj)
                         if asset_count % 10000 == 0:
                             self.logger.info(f"Fetched {asset_count} assets so far...")
-                        if assets_raw.get('nextPage'):
-                            page = int(assets_raw.get('nextPage'))
+                        if assets_raw.get("nextPage"):
+                            page = int(assets_raw.get("nextPage"))
                         else:
                             break
                     else:
-                        self.logger.info("Error: Could not find asset list in search API response.")
+                        self.logger.info(
+                            "Error: Could not find asset list in search API response."
+                        )
                         break
                 elif (
                     isinstance(assets_raw, dict)
-                    and 'assets' in assets_raw
-                    and isinstance(assets_raw['assets'], list)
+                    and "assets" in assets_raw
+                    and isinstance(assets_raw["assets"], list)
                 ):
-                    assets.extend(assets_raw['assets'])
-                    asset_count += len(assets_raw['assets'])
+                    assets.extend(assets_raw["assets"])
+                    asset_count += len(assets_raw["assets"])
                     if asset_count % 10000 == 0:
                         self.logger.info(f"Fetched {asset_count} assets so far...")
-                    if assets_raw.get('nextPage'):
-                        page = int(assets_raw.get('nextPage'))
+                    if assets_raw.get("nextPage"):
+                        page = int(assets_raw.get("nextPage"))
                     else:
                         break
                 else:
-                    self.logger.info("Error: Could not find asset list in search API response.")
+                    self.logger.info(
+                        "Error: Could not find asset list in search API response."
+                    )
                     break
             self.logger.info(f"Found {len(assets)} assets via search.")
         else:
@@ -150,9 +181,9 @@ class ImmichExtractor:
         error_files = []
         processed_files = set()
         fuzzy_match_files = set()
-        current_file_for_fuzzy = {'path': None}
-        fuzzy_this_file = {'fuzzy': False}
-
+        current_file_for_fuzzy = {"path": None}
+        fuzzy_this_file = {"fuzzy": False}
+        audit_status_counts = {}
 
         def _datetimes_equal_with_fuzzy(dt1, dt2):
             d1 = ExifToolManager._parse_exif_datetime(dt1)
@@ -166,116 +197,395 @@ class ImmichExtractor:
                     return True
                 delta = abs((d1 - d2).total_seconds())
                 if delta <= 86400 and d1.minute == d2.minute and d1.second == d2.second:
-                    if current_file_for_fuzzy['path']:
-                        fuzzy_match_files.add(current_file_for_fuzzy['path'])
-                        fuzzy_this_file['fuzzy'] = True
+                    if current_file_for_fuzzy["path"]:
+                        fuzzy_match_files.add(current_file_for_fuzzy["path"])
+                        fuzzy_this_file["fuzzy"] = True
                     self.logger.info(
                         f"  (Fuzzy match) EXIF datetimes within 24h and minutes/seconds match: "
                         f"'{dt1}' vs '{dt2}'"
                     )
                     return True
             return dt1 == dt2
+
         ExifToolManager._datetimes_equal = _datetimes_equal_with_fuzzy
 
         for i, asset in enumerate(assets, 1):
-            asset_id = asset.get('id')
-            file_name = asset.get('originalFileName')
+            asset_id = asset.get("id")
+            file_name = asset.get("originalFileName")
+            self.logger.debug(
+                f"Asset {i}: Extracted file_name='{file_name}' from asset metadata: {asset}"
+            )
             status = None
             log_path = None
+            error_msg = ""
             if not file_name:
-                status = 'no_filename'
-                self.logger.audit(f"[AUDIT] (asset {asset_id}) : {status}")
+                status = "no_filename"
+                self.logger.error(
+                    f"[EXIF],{''},{status},{''},{''},{''},{''},{''},{''},{''}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
             details = self.api.get_asset_details(asset_id) or asset
-            tags_raw = details.get('tags', [])
-            description = details.get('description', '').strip()
+            tags_raw = details.get("tags", [])
+            description = details.get("description", "").strip()
             if not description:
-                exif_info = details.get('exifInfo', {})
-                description = exif_info.get('description', '').strip()
+                exif_info = details.get("exifInfo", {})
+                description = exif_info.get("description", "").strip()
             tags = []
             for t in tags_raw:
                 if isinstance(t, dict):
-                    if 'name' in t:
-                        tags.append(t['name'])
-                    elif 'value' in t:
-                        tags.append(t['value'])
+                    if "name" in t:
+                        tags.append(t["name"])
+                    elif "value" in t:
+                        tags.append(t["value"])
                 elif isinstance(t, str):
                     tags.append(t)
             album_names = album_cache.get(asset_id, [])
             tags = sorted(set(tags + album_names))
-            date_original = details.get('dateTimeOriginal', '')
+            date_original = details.get("dateTimeOriginal", "")
             if not date_original:
-                exif_info = details.get('exifInfo', {})
-                date_original = exif_info.get('dateTimeOriginal', '')
-            date_exif = ''
+                exif_info = details.get("exifInfo", {})
+                date_original = exif_info.get("dateTimeOriginal", "")
+            date_exif = ""
             if date_original:
                 import re
                 from datetime import datetime, timezone
-                date_exif = re.sub(r'T', ' ', date_original)
-                date_exif = re.sub(r'-', ':', date_exif, count=2)
+
+                date_exif = re.sub(r"T", " ", date_original)
+                date_exif = re.sub(r"-", ":", date_exif, count=2)
                 try:
                     dt = None
-                    if 'Z' in date_exif or '+' in date_exif or '-' in date_exif[10:]:
-                        dt = datetime.fromisoformat(date_original.replace('Z', '+00:00'))
+                    if "Z" in date_exif or "+" in date_exif or "-" in date_exif[10:]:
+                        dt = datetime.fromisoformat(
+                            date_original.replace("Z", "+00:00")
+                        )
                     else:
                         dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
                         dt = dt.replace(tzinfo=timezone.utc)
                     dt_utc = dt.astimezone(timezone.utc)
                     date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
                 except Exception:
-                    date_exif = re.sub(r'(\d{2}:\d{2}:\d{2})([.\d]*)?(Z|[+-]\d+:?\d+)?$', r'\1', date_exif)
-            image_path = find_image_file(file_name, self.search_paths, logger=self.logger)
+                    date_exif = re.sub(
+                        r"(\d{2}:\d{2}:\d{2})([.\d]*)?(Z|[+-]\d+:?\d+)?$",
+                        r"\1",
+                        date_exif,
+                    )
+
+            # Reconstruct local file path using originalPath
+            original_path = asset.get("originalPath")
+            image_path = None
+            if original_path:
+                self.logger.debug(f"Asset {i}: originalPath present: {original_path}")
+                rel_path = original_path.lstrip("/")
+                rel_parts = rel_path.split("/")
+                # Replace the root folder with the basename of search_path
+                if rel_parts:
+                    rel_parts[0] = os.path.basename(self.search_path.rstrip("/"))
+                local_path = os.path.join(self.search_path, *rel_parts[1:])
+                if os.path.exists(local_path):
+                    image_path = local_path
+                    self.logger.debug(
+                        f"Asset {i}: Using reconstructed path from originalPath: {local_path}"
+                    )
+                else:
+                    self.logger.debug(
+                        f"Asset {i}: Reconstructed path does not exist: {local_path}"
+                    )
             if not image_path:
-                status = 'not_found'
-                self.logger.audit(f"{file_name} : {status}")
+                from .immich_extract_support import find_image_file
+
+                self.logger.debug(
+                    f"Asset {i}: Calling find_image_file for '{file_name}' with search_path={self.search_path!r}"
+                )
+                image_path = find_image_file(
+                    file_name, self.search_path, logger=self.logger
+                )
+                self.logger.debug(
+                    f"Asset {i}: find_image_file returned: {image_path!r}"
+                )
+            if not image_path:
+                status = "not_found"
+                self.logger.error(
+                    f"[EXIF],{file_name},{status},{''},{''},{''},{''},{''},{''},{''}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
             abs_image_path = os.path.abspath(image_path)
             log_path = abs_image_path
+            # Only process files within the search paths
+            in_search_path = False
+            for search_path in [self.search_path]:
+                if abs_image_path.startswith(os.path.abspath(search_path) + os.sep):
+                    in_search_path = True
+                    break
+            if not in_search_path:
+                status = "skipped"
+                error_msg = f"not in search paths: {abs_image_path}"
+                self.logger.audit(
+                    f"[EXIF],{log_path},{status},{''},{''},{''},{''},{''},{''},{error_msg}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                skipped_count += 1
+                continue
             if abs_image_path in processed_files:
-                status = 'skipped'
-                self.logger.audit(f"{log_path} : {status}")
+                status = "skipped"
+                error_msg = "duplicate: already processed in this run"
+                self.logger.audit(
+                    f"[EXIF],{log_path},{status},{''},{''},{''},{''},{''},{''},{error_msg}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
             processed_files.add(abs_image_path)
-            current_file_for_fuzzy['path'] = abs_image_path
-            fuzzy_this_file['fuzzy'] = False
-            result = ExifToolManager.update_exif(
-                image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=True, logger=self.logger
-            )
-            if result == 'skipped' and self.force_update_fuzzy and fuzzy_this_file['fuzzy']:
-                status = 'fuzzy_forced'
-                self.logger.audit(f"{log_path} : {status}")
-                result = ExifToolManager.update_exif(
-                    image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=False, logger=self.logger
+            current_file_for_fuzzy["path"] = abs_image_path
+            fuzzy_this_file["fuzzy"] = False
+            # Get current EXIF for logging
+            from .image_analyzer import ImageAnalyzer
+
+            error_msg = ""
+            try:
+                analyzer = ImageAnalyzer()
+                exif_data = analyzer.get_exif(abs_image_path)
+                if not exif_data:
+                    raise RuntimeError("No EXIF data returned")
+                current_desc = exif_data.get("Description", "")
+                current_tags = exif_data.get("Subject", exif_data.get("Keywords", []))
+                if isinstance(current_tags, list):
+                    current_tags = ";".join(sorted([str(t) for t in current_tags]))
+                else:
+                    current_tags = str(current_tags)
+                current_date = exif_data.get("DateTimeOriginal", "")
+            except Exception as e:
+                current_desc = ""
+                current_tags = ""
+                current_date = ""
+                error_msg = f"EXIF read error: {e}"
+                status = "error"
+                target_desc = description
+                target_tags = ";".join(sorted([str(t) for t in tags]))
+                target_date = date_exif
+                self.logger.error(
+                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
+                    f"{current_date},{target_date},{error_msg}"
                 )
-            elif result == 'skipped' and fuzzy_this_file['fuzzy']:
-                status = 'fuzzy_skipped'
-                self.logger.audit(f"{log_path} : {status}")
-            elif result == 'skipped':
-                status = 'skipped'
-                self.logger.audit(f"{log_path} : {status}")
-            elif result == 'updated':
-                status = 'updated'
-                self.logger.audit(f"{log_path} : {status}")
+            target_desc = description
+            target_tags = ";".join(sorted([str(t) for t in tags]))
+            target_date = date_exif
+            result = ExifToolManager.update_exif(
+                image_path,
+                description,
+                tags,
+                self.dry_run,
+                date_exif,
+                skip_if_unchanged=True,
+                logger=self.logger,
+            )
+            if (
+                result == "skipped"
+                and self.force_update_fuzzy
+                and fuzzy_this_file["fuzzy"]
+            ):
+                status = "fuzzy_forced"
+                error_msg = "fuzzy match forced update"
+                self.logger.audit(
+                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
+                    f"{current_date},{target_date},{error_msg}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                result = ExifToolManager.update_exif(
+                    image_path,
+                    description,
+                    tags,
+                    self.dry_run,
+                    date_exif,
+                    skip_if_unchanged=False,
+                    logger=self.logger,
+                )
+            elif result == "skipped" and fuzzy_this_file["fuzzy"]:
+                status = "fuzzy_skipped"
+                error_msg = (
+                    "fuzzy match: EXIF datetimes within 24h and minutes/seconds match"
+                )
+                self.logger.audit(
+                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
+                    f"{current_date},{target_date},{error_msg}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+            elif result == "skipped":
+                status = "skipped"
+                error_msg = "EXIF already matches"
+                self.logger.audit(
+                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
+                    f"{current_date},{target_date},{error_msg}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+            elif result == "updated":
+                status = "updated"
+                self.logger.audit(
+                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
+                    f"{current_date},{target_date},{error_msg}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 updated_count += 1
             else:
-                status = 'error'
-                self.logger.error(f"{log_path} : {status}")
+                status = "error"
+                error_msg = "Update failed"
+                self.logger.error(
+                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
+                    f"{current_date},{target_date},{error_msg}"
+                )
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 error_count += 1
                 error_files.append(file_name)
-            current_file_for_fuzzy['path'] = None
+            current_file_for_fuzzy["path"] = None
             # Progress indicator every 50 files
             if i % 50 == 0:
                 self.logger.info(f"Processed {i}/{len(assets)} files...")
 
         # Return summary for logging by caller
         return {
-            'total_assets': len(assets),
-            'updated_count': updated_count,
-            'skipped_count': skipped_count,
-            'fuzzy_match_count': len(fuzzy_match_files),
-            'error_count': error_count,
-            'error_files': error_files,
+            "total_assets": len(assets),
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
+            "fuzzy_match_count": len(fuzzy_match_files),
+            "error_count": error_count,
+            "error_files": error_files,
+            "audit_status_counts": audit_status_counts,
+        }
+        for i, asset in enumerate(assets, 1):
+            asset_id = asset.get("id")
+            file_name = asset.get("originalFileName")
+            status = None
+            log_path = None
+            if not file_name:
+                status = "no_filename"
+                self.logger.audit(f"[AUDIT] (asset {asset_id}) : {status}")
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                skipped_count += 1
+                continue
+            details = self.api.get_asset_details(asset_id) or asset
+            tags_raw = details.get("tags", [])
+            description = details.get("description", "").strip()
+            if not description:
+                exif_info = details.get("exifInfo", {})
+                description = exif_info.get("description", "").strip()
+            tags = []
+            for t in tags_raw:
+                if isinstance(t, dict):
+                    if "name" in t:
+                        tags.append(t["name"])
+                    elif "value" in t:
+                        tags.append(t["value"])
+                elif isinstance(t, str):
+                    tags.append(t)
+            album_names = album_cache.get(asset_id, [])
+            tags = sorted(set(tags + album_names))
+            date_original = details.get("dateTimeOriginal", "")
+            if not date_original:
+                exif_info = details.get("exifInfo", {})
+                date_original = exif_info.get("dateTimeOriginal", "")
+            date_exif = ""
+            if date_original:
+                import re
+                from datetime import datetime, timezone
+
+                date_exif = re.sub(r"T", " ", date_original)
+                date_exif = re.sub(r"-", ":", date_exif, count=2)
+                try:
+                    dt = None
+                    if "Z" in date_exif or "+" in date_exif or "-" in date_exif[10:]:
+                        dt = datetime.fromisoformat(
+                            date_original.replace("Z", "+00:00")
+                        )
+                    else:
+                        dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    dt_utc = dt.astimezone(timezone.utc)
+                    date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
+                except Exception:
+                    date_exif = re.sub(
+                        r"(\d{2}:\d{2}:\d{2})([.\d]*)?(Z|[+-]\d+:?\d+)?$",
+                        r"\1",
+                        date_exif,
+                    )
+            image_path = find_image_file(
+                file_name, self.search_path, logger=self.logger
+            )
+            if not image_path:
+                status = "not_found"
+                self.logger.audit(f"{file_name} : {status}")
+                skipped_count += 1
+                continue
+            abs_image_path = os.path.abspath(image_path)
+            log_path = abs_image_path
+            if abs_image_path in processed_files:
+                status = "skipped"
+                self.logger.audit(f"{log_path} : {status}")
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                skipped_count += 1
+                continue
+            processed_files.add(abs_image_path)
+            current_file_for_fuzzy["path"] = abs_image_path
+            fuzzy_this_file["fuzzy"] = False
+            result = ExifToolManager.update_exif(
+                image_path,
+                description,
+                tags,
+                self.dry_run,
+                date_exif,
+                skip_if_unchanged=True,
+                logger=self.logger,
+            )
+            if (
+                result == "skipped"
+                and self.force_update_fuzzy
+                and fuzzy_this_file["fuzzy"]
+            ):
+                status = "fuzzy_forced"
+                self.logger.audit(f"{log_path} : {status}")
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                result = ExifToolManager.update_exif(
+                    image_path,
+                    description,
+                    tags,
+                    self.dry_run,
+                    date_exif,
+                    skip_if_unchanged=False,
+                    logger=self.logger,
+                )
+            elif result == "skipped" and fuzzy_this_file["fuzzy"]:
+                status = "fuzzy_skipped"
+                self.logger.audit(f"{log_path} : {status}")
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+            elif result == "skipped":
+                status = "skipped"
+                self.logger.audit(f"{log_path} : {status}")
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+            elif result == "updated":
+                status = "updated"
+                self.logger.audit(f"{log_path} : {status}")
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                updated_count += 1
+            else:
+                status = "error"
+                self.logger.error(f"{log_path} : {status}")
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                error_count += 1
+                error_files.append(file_name)
+            current_file_for_fuzzy["path"] = None
+            # Progress indicator every 50 files
+            if i % 50 == 0:
+                self.logger.info(f"Processed {i}/{len(assets)} files...")
+
+        # Return summary for logging by caller
+        return {
+            "total_assets": len(assets),
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
+            "fuzzy_match_count": len(fuzzy_match_files),
+            "error_count": error_count,
+            "error_files": error_files,
+            "audit_status_counts": audit_status_counts,
         }

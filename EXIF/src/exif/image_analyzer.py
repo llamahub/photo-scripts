@@ -8,6 +8,22 @@ from .image_data import ImageData
 
 
 class ImageAnalyzer(ImageData):
+    def get_exif(self, image_path):
+        """Public method to extract EXIF data for a single image file using exiftool -j."""
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"File not found: {image_path}")
+        cmd = ["exiftool", "-j", image_path]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if result.returncode == 0 and result.stdout:
+                data_list = json.loads(result.stdout)
+                if data_list:
+                    return data_list[0]
+            return {}
+        except Exception as e:
+            self.logger.error(f"EXIF extraction failed for {image_path}: {e}")
+            return {}
+
     """High-performance image analyzer with batch processing and parallel execution."""
 
     def __init__(
