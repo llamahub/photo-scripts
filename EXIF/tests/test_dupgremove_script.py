@@ -298,8 +298,8 @@ class TestDupGuruRemover:
             ]
         )
 
-        # Verbose output should contain more detailed information (in stderr for logging)
-        assert "Processing CSV file:" in result.stderr or "Moved:" in result.stderr
+        # Verbose output should contain more detailed information (now in stdout)
+        assert "Processing CSV file:" in result.stdout or "Moved:" in result.stdout
 
     def test_quiet_mode(self):
         """Test quiet mode suppresses output."""
@@ -329,7 +329,7 @@ class TestDupGuruRemover:
         )
 
         assert result.returncode != 0
-        assert "Missing required columns" in result.stderr or "Error" in result.stderr
+        assert "Missing required columns" in result.stdout or "Error" in result.stdout
 
     def test_missing_input_file(self):
         """Test handling of missing input file."""

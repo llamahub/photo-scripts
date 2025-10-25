@@ -25,15 +25,22 @@ import requests
 import json
 import logging
 from datetime import datetime
+
 # --- Load config for .env support ---
 try:
     # Try relative to EXIF/scripts/immich_extract.py (for direct run)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "COMMON" / "src"))
-    from common import config as common_config
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+    from exif.immich_config import ImmichConfig
 except ImportError:
     # Try relative to workspace root (for run wrapper or other entrypoints)
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "COMMON" / "src"))
-    from common import config as common_config
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "EXIF" / "src"))
+
+    from exif.immich_config import ImmichConfig
+
+
 
 class ImmichAPI:
     def __init__(self, base_url: str, api_key: str):
@@ -60,6 +67,8 @@ class ImmichAPI:
         resp = self.session.get(url)
         resp.raise_for_status()
         return resp.json()
+
+
 
 class ExifToolManager:
     @staticmethod
@@ -103,19 +112,28 @@ class ExifToolManager:
         logger = logging.getLogger("extract")
         d1 = ExifToolManager._parse_exif_datetime(dt1)
         d2 = ExifToolManager._parse_exif_datetime(dt2)
-        logger.info(f"  (Debug) Comparing EXIF datetimes: raw1='{dt1}' raw2='{dt2}' parsed1='{d1}' parsed2='{d2}'")
+        logger.info(
+            f"  (Debug) Comparing EXIF datetimes: raw1='{dt1}' raw2='{dt2}' "
+            f"parsed1='{d1}' parsed2='{d2}'"
+        )
         if d1 and d2:
             if d1 == d2:
                 return True
             # Fuzzy match: within 24 hours and minutes/seconds match
             delta = abs((d1 - d2).total_seconds())
             if delta <= 86400 and d1.minute == d2.minute and d1.second == d2.second:
-                logger.info(f"  (Fuzzy match) EXIF datetimes within 24h and minutes/seconds match: '{dt1}' vs '{dt2}'")
+                logger.info(
+                    f"  (Fuzzy match) EXIF datetimes within 24h and minutes/seconds match: "
+                    f"'{dt1}' vs '{dt2}'"
+                )
                 return True
         return dt1 == dt2  # fallback: compare as strings
 
     @staticmethod
-    def update_exif(file_path: str, description: str, tags: List[str], dry_run: bool = False, date_exif: str = '', skip_if_unchanged: bool = False) -> str:
+    def update_exif(
+        file_path: str, description: str, tags: List[str],
+        dry_run: bool = False, date_exif: str = '', skip_if_unchanged: bool = False
+    ) -> str:
         import logging
         logger = logging.getLogger("extract")
         ext = os.path.splitext(file_path)[1].lower()
@@ -124,7 +142,7 @@ class ExifToolManager:
         if not os.path.exists(file_path):
             logger.info(f"✗ File not found: {file_path}")
             return 'error'
-        tag_str = ', '.join(tags)
+    # tag_str = ', '.join(tags)  # Unused variable
         # Optionally skip update if nothing has changed
         skip_date_fields = False
         if skip_if_unchanged:
@@ -159,6 +177,7 @@ class ExifToolManager:
                         tags_subject = []
                     if isinstance(tags_subject, str):
                         tags_subject = [tags_subject]
+                    
                     def split_tags(taglist):
                         result = []
                         for t in taglist:
@@ -180,9 +199,11 @@ class ExifToolManager:
                         tags_fallback = set()
                         for line in result_txt.stdout.splitlines():
                             if line.startswith('Keywords') or line.startswith('Subject'):
-                                val = line.split(':',1)[-1].strip()
+                                val = line.split(':', 1)[-1].strip()
                                 if val:
-                                    tags_fallback.update([t.strip().lower() for t in val.split(',') if t.strip()])
+                                    tags_fallback.update([
+                                        t.strip().lower() for t in val.split(',') if t.strip()
+                                    ])
                         tags_current_combined = tags_fallback
                     tags_new = set([t.strip().lower() for t in tags if t and t.strip()])
                     date_fields = ['DateTimeOriginal', 'CreateDate', 'ModifyDate']
@@ -197,9 +218,11 @@ class ExifToolManager:
                         if date_match:
                             # All date fields already match, so do not update them
                             skip_date_fields = True
-                    if (desc_current == desc_new and
+                    if (
+                        desc_current == desc_new and
                         tags_current_combined == tags_new and
-                        (not date_exif or date_match)):
+                        (not date_exif or date_match)
+                    ):
                         logger.info(f"  ✓ No metadata changes for {file_path}, skipping update.")
                         return 'skipped'  # Distinguish skipped
                 # else, fall through to update
@@ -254,7 +277,10 @@ class ExifToolManager:
             return 'error'
 
     @staticmethod
-    def handle_mpg(file_path: str, description: str, tags: List[str], dry_run: bool = False, date_exif: str = '') -> str:
+    def handle_mpg(
+        file_path: str, description: str, tags: List[str],
+        dry_run: bool = False, date_exif: str = ''
+    ) -> str:
         """
         If an MP4 with the same name exists in the same folder, update that instead (only if metadata has changed).
         If not, create an MP4 copy and update its metadata.
@@ -262,7 +288,9 @@ class ExifToolManager:
         mp4_path = os.path.splitext(file_path)[0] + '.mp4'
         if os.path.exists(mp4_path):
             # Only update if metadata has changed
-            return ExifToolManager.update_exif(mp4_path, description, tags, dry_run, date_exif, skip_if_unchanged=True)
+            return ExifToolManager.update_exif(
+                mp4_path, description, tags, dry_run, date_exif, skip_if_unchanged=True
+            )
         else:
             if dry_run:
                 print(f"DRY RUN: Would create MP4 copy from MPG: {file_path} -> {mp4_path}")
@@ -272,7 +300,7 @@ class ExifToolManager:
             try:
                 import shutil
                 if not shutil.which('ffmpeg'):
-                    print(f"✗ ffmpeg not found. Cannot convert MPG to MP4.")
+                    print("✗ ffmpeg not found. Cannot convert MPG to MP4.")
                     return 'error'
                 print(f"Converting MPG to MP4: {file_path} -> {mp4_path}")
                 ffmpeg_cmd = [
@@ -283,10 +311,14 @@ class ExifToolManager:
                     print(f"✗ Error converting MPG to MP4: {result.stderr}")
                     return 'error'
                 print(f"✓ Created MP4: {mp4_path}. Updating metadata...")
-                return ExifToolManager.update_exif(mp4_path, description, tags, dry_run, date_exif, skip_if_unchanged=False)
+                return ExifToolManager.update_exif(
+                    mp4_path, description, tags, dry_run, date_exif, skip_if_unchanged=False
+                )
             except Exception as e:
                 print(f"✗ Error handling MPG file: {e}")
                 return 'error'
+
+
 
 def find_image_file(file_name: str, search_paths: List[str]) -> Optional[str]:
     for search_path in search_paths:
@@ -296,6 +328,8 @@ def find_image_file(file_name: str, search_paths: List[str]) -> Optional[str]:
                 if file_path.is_file():
                     return str(file_path)
     return None
+
+
 
 def setup_logger(log_path=None):
     logger = logging.getLogger("extract")
@@ -313,39 +347,56 @@ def setup_logger(log_path=None):
 
 def main():
 
-    parser = argparse.ArgumentParser(description='Extract description and tags from Immich album and update EXIF data')
-    parser.add_argument('--url', required=False, help='Immich base URL (e.g., http://localhost:2283)')
-    parser.add_argument('--api-key', required=False, help='Immich API key')
+    parser = argparse.ArgumentParser(
+        description='Extract description and tags from Immich album and update EXIF data'
+    )
+    parser.add_argument('--url', required=False,
+        help='Immich base URL (e.g., http://localhost:2283)')
+    parser.add_argument('--api-key', required=False,
+        help='Immich API key')
     parser.add_argument('--album', help='Immich album ID')
-    parser.add_argument('--search', action='store_true', help='Use Immich search API instead of album (enables --updatedAfter)')
-    parser.add_argument('--updatedAfter', type=str, default=None, help='Only process assets updated after this ISO date/time (e.g., 2025-06-30T00:00:00Z)')
-    parser.add_argument('--search-paths', nargs='+', required=True, help='Paths to search for image files')
-    parser.add_argument('--dry-run', action='store_true', help='Show what would be done without making changes')
-    parser.add_argument('--search-archive', action='store_true', help='Search for archived assets (Immich isArchived=true)')
-    parser.add_argument('--refresh-album-cache', action='store_true', help='Force refresh album cache from Immich')
-    parser.add_argument('--use-album-cache', action='store_true', help='Use local album cache if present (default: use cache if present, refresh if not)')
-    parser.add_argument('--log-file', type=str, default=None, help='Path to log file (default: .log/extract_<timestamp>.log)')
-    parser.add_argument('--force-update-fuzzy', action='store_true', help='Force update files with fuzzy datetime matches')
+    parser.add_argument('--search', action='store_true',
+        help='Use Immich search API instead of album (enables --updatedAfter)')
+    parser.add_argument('--updatedAfter', type=str, default=None,
+        help='Only process assets updated after this ISO date/time (e.g., 2025-06-30T00:00:00Z)')
+    parser.add_argument('--search-paths', nargs='+', required=True,
+        help='Paths to search for image files')
+    parser.add_argument('--dry-run', action='store_true',
+        help='Show what would be done without making changes')
+    parser.add_argument('--search-archive', action='store_true',
+        help='Search for archived assets (Immich isArchived=true)')
+    parser.add_argument('--refresh-album-cache', action='store_true',
+        help='Force refresh album cache from Immich')
+    parser.add_argument('--use-album-cache', action='store_true',
+        help='Use local album cache if present (default: use cache if present, refresh if not)')
+    parser.add_argument('--log-file', type=str, default=None,
+        help='Path to log file (default: .log/extract_<timestamp>.log)')
+    parser.add_argument('--force-update-fuzzy', action='store_true',
+        help='Force update files with fuzzy datetime matches')
     args = parser.parse_args()
+
 
     # --- Load .env using common config ---
     # Try to load from EXIF/.env, fallback to workspace root .env
     project_path = Path(__file__).resolve().parent.parent
     config = None
     try:
-        config = common_config.load_config(project_path=project_path, env=os.environ.get("ENVIRONMENT", "dev"))
+        config = ImmichConfig(_env_file=project_path / ".env", _env_file_encoding="utf-8")
     except Exception:
-        config = None
+        try:
+            config = ImmichConfig(_env_file=Path.cwd() / ".env", _env_file_encoding="utf-8")
+        except Exception:
+            config = ImmichConfig()
 
     # Support IMMICH_URL and IMMICH_API_KEY from env or .env
     env_url = os.environ.get("IMMICH_URL")
     env_api_key = os.environ.get("IMMICH_API_KEY")
 
-    # Precedence: CLI > ENV > config (if extended)
-    url = args.url or env_url
-    api_key = args.api_key or env_api_key
+    # Precedence: CLI > ENV > config (ImmichConfig)
+    url = args.url or env_url or config.immich_url
+    api_key = args.api_key or env_api_key or config.immich_api_key
     if not url or not api_key:
-        print("Error: Immich URL and API key must be provided via --url/--api-key or IMMICH_URL/IMMICH_API_KEY in .env.")
+        print("Error: Immich URL and API key must be provided via --url/--api-key, IMMICH_URL/IMMICH_API_KEY in .env, or ImmichConfig.")
         sys.exit(2)
 
 

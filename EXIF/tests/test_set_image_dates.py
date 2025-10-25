@@ -338,7 +338,7 @@ class TestSetImageDatesScript:
         )
 
         assert result.returncode == 0
-        assert "DRY RUN completed" in result.stderr
+        assert "DRY RUN completed" in result.stdout
 
     def test_script_custom_columns(self, temp_setup):
         """Test script with custom column names - should fail with proper error."""
@@ -359,7 +359,7 @@ class TestSetImageDatesScript:
 
         # Should fail because custom columns don't exist in test CSV
         assert result.returncode != 0
-        assert "File column 'File Path' not found" in result.stderr
+        assert "File column 'File Path' not found" in result.stdout
 
     @mock.patch.object(ImageDateSetter, "validate_exiftool")
     @mock.patch.object(ImageDateSetter, "process_csv")
