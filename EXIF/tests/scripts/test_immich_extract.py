@@ -1,20 +1,52 @@
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "COMMON" / "src"))
+import os
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
+from common.temp import TempManager
+from exif.immich_extract_support import ImmichAPI, ExifToolManager, find_image_file
+from exif.immich_extractor import ImmichExtractor
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
-sys.path.insert(
-    0, str(Path(__file__).parent.parent.parent.parent / "COMMON" / "src" / "common")
-)
-from temp import TempManager
-import immich_extract
+
+class TestImmichExtractor(unittest.TestCase):
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    def test_run_minimal_album(self, mock_find_image_file, mock_ExifToolManager, mock_ImmichAPI):
+        # Setup mocks
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.list_albums.return_value = []
+
+        mock_api.get_album_assets.return_value = [
+            {"id": "asset1", "originalFileName": "img1.jpg"}
+        ]
+        mock_api.get_asset_details.return_value = {
+            "id": "asset1", "originalFileName": "img1.jpg", "tags": ["tag1"], "description": "desc"
+        }
+        mock_find_image_file.return_value = __file__  # Use this test file as a dummy image
+        mock_ExifToolManager.update_exif.return_value = "updated"
+        mock_ExifToolManager.check_exiftool.return_value = True
+
+        # Create a temp dir for log/cache
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                extractor = ImmichExtractor(
+                    url="http://test", api_key="key", search_paths=[tmpdir], album="albumid"
+                )
+                extractor.run()
+            finally:
+                os.chdir(old_cwd)
+
 
 
 class TestImmichAPI(unittest.TestCase):
-    @patch("immich_extract.requests.Session")
+    @patch("exif.immich_extract_support.requests.Session")
     def test_get_album_assets(self, mock_session):
-        api = immich_extract.ImmichAPI("http://test", "key")
+        api = ImmichAPI("http://test", "key")
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"assets": [1, 2, 3]}
         mock_resp.raise_for_status = MagicMock()
@@ -23,9 +55,9 @@ class TestImmichAPI(unittest.TestCase):
         self.assertEqual(assets, [1, 2, 3])
         api.session.get.assert_called_once()
 
-    @patch("immich_extract.requests.Session")
+    @patch("exif.immich_extract_support.requests.Session")
     def test_get_asset_details(self, mock_session):
-        api = immich_extract.ImmichAPI("http://test", "key")
+        api = ImmichAPI("http://test", "key")
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"id": "assetid"}
@@ -33,9 +65,9 @@ class TestImmichAPI(unittest.TestCase):
         details = api.get_asset_details("assetid")
         self.assertEqual(details, {"id": "assetid"})
 
-    @patch("immich_extract.requests.Session")
+    @patch("exif.immich_extract_support.requests.Session")
     def test_list_albums(self, mock_session):
-        api = immich_extract.ImmichAPI("http://test", "key")
+        api = ImmichAPI("http://test", "key")
         mock_resp = MagicMock()
         mock_resp.json.return_value = [{"id": "1"}]
         mock_resp.raise_for_status = MagicMock()
@@ -45,26 +77,26 @@ class TestImmichAPI(unittest.TestCase):
 
 
 class TestExifToolManager(unittest.TestCase):
-    @patch("immich_extract.subprocess.run")
+    @patch("exif.immich_extract_support.subprocess.run")
     def test_check_exiftool_success(self, mock_run):
         mock_run.return_value.returncode = 0
-        self.assertTrue(immich_extract.ExifToolManager.check_exiftool())
+        self.assertTrue(ExifToolManager.check_exiftool())
 
-    @patch("immich_extract.subprocess.run", side_effect=Exception)
+    @patch("exif.immich_extract_support.subprocess.run", side_effect=Exception)
     def test_check_exiftool_fail(self, mock_run):
-        self.assertFalse(immich_extract.ExifToolManager.check_exiftool())
+        self.assertFalse(ExifToolManager.check_exiftool())
 
-    @patch("immich_extract.os.path.exists", return_value=False)
+    @patch("exif.immich_extract_support.os.path.exists", return_value=False)
     def test_update_exif_file_not_found(self, mock_exists):
-        result = immich_extract.ExifToolManager.update_exif(
+        result = ExifToolManager.update_exif(
             "nofile.jpg", "desc", ["tag"], dry_run=True
         )
         self.assertEqual(result, "error")
 
-    @patch("immich_extract.subprocess.run")
-    @patch("immich_extract.os.path.exists", return_value=True)
+    @patch("exif.immich_extract_support.subprocess.run")
+    @patch("exif.immich_extract_support.os.path.exists", return_value=True)
     def test_update_exif_dry_run(self, mock_exists, mock_run):
-        result = immich_extract.ExifToolManager.update_exif(
+        result = ExifToolManager.update_exif(
             "file.jpg", "desc", ["tag"], dry_run=True
         )
         self.assertEqual(result, "updated")
@@ -73,17 +105,17 @@ class TestExifToolManager(unittest.TestCase):
 class TestFindImageFile(unittest.TestCase):
     def test_find_image_file_found(self):
         with TempManager.auto_cleanup_dir("immich_test") as temp_dir:
-            with patch("immich_extract.Path.rglob") as mock_rglob:
+            with patch("exif.immich_extract_support.Path.rglob") as mock_rglob:
                 mock_file = MagicMock()
                 mock_file.is_file.return_value = True
                 mock_rglob.return_value = [mock_file]
-                result = immich_extract.find_image_file("test.jpg", [str(temp_dir)])
+                result = find_image_file("test.jpg", [str(temp_dir)])
                 self.assertTrue(result)
 
     def test_find_image_file_not_found(self):
         with TempManager.auto_cleanup_dir("immich_test") as temp_dir:
-            with patch("immich_extract.Path.rglob", return_value=[]):
-                result = immich_extract.find_image_file("test.jpg", [str(temp_dir)])
+            with patch("exif.immich_extract_support.Path.rglob", return_value=[]):
+                result = find_image_file("test.jpg", [str(temp_dir)])
                 self.assertIsNone(result)
 
 
