@@ -7,7 +7,7 @@ from .immich_config import ImmichConfig
 from .immich_extract_support import ImmichAPI, ExifToolManager, find_image_file
 
 class ImmichExtractor:
-    def __init__(self, url: str, api_key: str, search_paths: List[str], album: Optional[str] = None, search: bool = False, updated_after: Optional[str] = None, search_archive: bool = False, refresh_album_cache: bool = False, use_album_cache: bool = False, dry_run: bool = False, force_update_fuzzy: bool = False, log_file: Optional[str] = None):
+    def __init__(self, url: str, api_key: str, search_paths: List[str], album: Optional[str] = None, search: bool = False, updated_after: Optional[str] = None, search_archive: bool = False, refresh_album_cache: bool = False, use_album_cache: bool = False, dry_run: bool = False, force_update_fuzzy: bool = False, logger: Optional[logging.Logger] = None):
         self.url = url
         self.api_key = api_key
         self.search_paths = search_paths
@@ -19,58 +19,49 @@ class ImmichExtractor:
         self.use_album_cache = use_album_cache
         self.dry_run = dry_run
         self.force_update_fuzzy = force_update_fuzzy
-        self.log_file = log_file
-        self.logger, self.log_path = self.setup_logger(log_file)
+        self.logger = logger or logging.getLogger("extract")
         self.api = ImmichAPI(url, api_key)
-
-    def setup_logger(self, log_path=None):
-        logger = logging.getLogger("extract")
-        logger.setLevel(logging.INFO)
-        logger.handlers = []
-        if not log_path:
-            log_dir = Path('.log')
-            log_dir.mkdir(exist_ok=True)
-            log_path = log_dir / f"extract_{Path().cwd().name}.log"
-        handler = logging.FileHandler(str(log_path), encoding='utf-8')
-        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        return logger, log_path
+        # Try to get log file path from logger handlers
+        self.log_path = None
+        if self.logger and hasattr(self.logger, 'handlers'):
+            for h in self.logger.handlers:
+                if isinstance(h, logging.FileHandler):
+                    self.log_path = getattr(h, 'baseFilename', None)
+                    break
 
     def run(self):
-        # Main extraction logic (refactored from CLI script)
-        logger = self.logger
-        api = self.api
-
-        logger.info("[DEBUG] Entered ImmichExtractor.run()")
+        self.logger.debug("Entered ImmichExtractor.run()")
         # Album cache logic
         cache_dir = Path('.log')
         cache_dir.mkdir(exist_ok=True)
         album_cache_path = cache_dir / 'immich_album_cache.json'
         album_cache = {}
         need_refresh = self.refresh_album_cache or not album_cache_path.exists()
-        logger.info(f"[DEBUG] Album cache path: {album_cache_path}, need_refresh={need_refresh}, use_album_cache={self.use_album_cache}")
+        self.logger.debug(
+            f"Album cache path: {album_cache_path}, need_refresh={need_refresh}, "
+            f"use_album_cache={self.use_album_cache}"
+        )
         if not need_refresh and self.use_album_cache:
             try:
-                logger.info("[DEBUG] Loading album cache from file...")
+                self.logger.debug("Loading album cache from file...")
                 with open(album_cache_path, 'r') as f:
                     album_cache = json.load(f)
             except Exception as e:
-                logger.info(f"Could not load album cache: {e}. Will refresh from Immich.")
+                self.logger.info(f"Could not load album cache: {e}. Will refresh from Immich.")
                 need_refresh = True
         if need_refresh:
-            logger.info("Fetching all albums from Immich to build album cache...")
-            albums = api.list_albums()
-            logger.info(f"[DEBUG] Got {len(albums)} albums from Immich.")
+            self.logger.info("Fetching all albums from Immich to build album cache...")
+            albums = self.api.list_albums()
+            self.logger.debug(f"Got {len(albums)} albums from Immich.")
             asset_to_albums = {}
             for album in albums:
                 album_name = album.get('albumName', '').strip()
                 album_id = album.get('id')
                 if not album_id:
                     continue
-                logger.info(f"[DEBUG] Fetching assets for album_id={album_id}")
-                album_assets = api.get_album_assets(album_id)
-                logger.info(f"[DEBUG] Got {len(album_assets)} assets for album_id={album_id}")
+                self.logger.debug(f"Fetching assets for album_id={album_id}")
+                album_assets = self.api.get_album_assets(album_id)
+                self.logger.debug(f"Got {len(album_assets)} assets for album_id={album_id}")
                 for asset in album_assets:
                     aid = asset.get('id')
                     if aid:
@@ -78,16 +69,16 @@ class ImmichExtractor:
             album_cache = {aid: sorted(list(names)) for aid, names in asset_to_albums.items()}
             with open(album_cache_path, 'w') as f:
                 json.dump(album_cache, f, indent=2)
-            logger.info(f"Album cache written to {album_cache_path}")
+            self.logger.info(f"Album cache written to {album_cache_path}")
         else:
-            logger.info(f"Using album cache from {album_cache_path}")
+            self.logger.info(f"Using album cache from {album_cache_path}")
             with open(album_cache_path, 'r') as f:
                 album_cache = json.load(f)
 
-        logger.info(f"[DEBUG] Album cache loaded with {len(album_cache)} asset entries.")
+        self.logger.debug(f"Album cache loaded with {len(album_cache)} asset entries.")
         # Asset search or album fetch
         if self.search:
-            logger.info("Searching assets via /api/search/metadata...")
+            self.logger.info("Searching assets via /api/search/metadata...")
             search_payload = {}
             if self.updated_after:
                 search_payload['updatedAfter'] = self.updated_after
@@ -96,9 +87,10 @@ class ImmichExtractor:
                 search_payload['isArchived'] = True
             page = 1
             assets = []
+            asset_count = 0
             while True:
                 search_payload['page'] = page
-                resp = api.session.post(f"{api.base_url}/api/search/metadata", json=search_payload)
+                resp = self.api.session.post(f"{self.api.base_url}/api/search/metadata", json=search_payload)
                 resp.raise_for_status()
                 assets_raw = resp.json()
                 while isinstance(assets_raw, dict) and 'data' in assets_raw:
@@ -111,18 +103,24 @@ class ImmichExtractor:
                         and isinstance(assets_obj['items'], list)
                     ):
                         assets.extend(assets_obj['items'])
+                        asset_count += len(assets_obj['items'])
+                        if asset_count % 10000 == 0:
+                            self.logger.info(f"Fetched {asset_count} assets so far...")
                         if assets_obj.get('nextPage'):
                             page = int(assets_obj.get('nextPage'))
                         else:
                             break
                     elif isinstance(assets_obj, list):
                         assets.extend(assets_obj)
+                        asset_count += len(assets_obj)
+                        if asset_count % 10000 == 0:
+                            self.logger.info(f"Fetched {asset_count} assets so far...")
                         if assets_raw.get('nextPage'):
                             page = int(assets_raw.get('nextPage'))
                         else:
                             break
                     else:
-                        logger.info("Error: Could not find asset list in search API response.")
+                        self.logger.info("Error: Could not find asset list in search API response.")
                         break
                 elif (
                     isinstance(assets_raw, dict)
@@ -130,18 +128,21 @@ class ImmichExtractor:
                     and isinstance(assets_raw['assets'], list)
                 ):
                     assets.extend(assets_raw['assets'])
+                    asset_count += len(assets_raw['assets'])
+                    if asset_count % 10000 == 0:
+                        self.logger.info(f"Fetched {asset_count} assets so far...")
                     if assets_raw.get('nextPage'):
                         page = int(assets_raw.get('nextPage'))
                     else:
                         break
                 else:
-                    logger.info("Error: Could not find asset list in search API response.")
+                    self.logger.info("Error: Could not find asset list in search API response.")
                     break
-            logger.info(f"Found {len(assets)} assets via search.")
+            self.logger.info(f"Found {len(assets)} assets via search.")
         else:
-            logger.info(f"Fetching assets for album {self.album}...")
-            assets = api.get_album_assets(self.album)
-            logger.info(f"Found {len(assets)} assets in album.")
+            self.logger.info(f"Fetching assets for album {self.album}...")
+            assets = self.api.get_album_assets(self.album)
+            self.logger.info(f"Found {len(assets)} assets in album.")
 
         updated_count = 0
         skipped_count = 0
@@ -151,11 +152,12 @@ class ImmichExtractor:
         fuzzy_match_files = set()
         current_file_for_fuzzy = {'path': None}
         fuzzy_this_file = {'fuzzy': False}
-        
+
+
         def _datetimes_equal_with_fuzzy(dt1, dt2):
             d1 = ExifToolManager._parse_exif_datetime(dt1)
             d2 = ExifToolManager._parse_exif_datetime(dt2)
-            logger.info(
+            self.logger.info(
                 f"  (Debug) Comparing EXIF datetimes: raw1='{dt1}' raw2='{dt2}' "
                 f"parsed1='{d1}' parsed2='{d2}'"
             )
@@ -167,7 +169,7 @@ class ImmichExtractor:
                     if current_file_for_fuzzy['path']:
                         fuzzy_match_files.add(current_file_for_fuzzy['path'])
                         fuzzy_this_file['fuzzy'] = True
-                    logger.info(
+                    self.logger.info(
                         f"  (Fuzzy match) EXIF datetimes within 24h and minutes/seconds match: "
                         f"'{dt1}' vs '{dt2}'"
                     )
@@ -178,11 +180,14 @@ class ImmichExtractor:
         for i, asset in enumerate(assets, 1):
             asset_id = asset.get('id')
             file_name = asset.get('originalFileName')
+            status = None
+            log_path = None
             if not file_name:
-                logger.info(f"[{i}] Skipping asset with no file name.")
+                status = 'no_filename'
+                self.logger.audit(f"[AUDIT] (asset {asset_id}) : {status}")
                 skipped_count += 1
                 continue
-            details = api.get_asset_details(asset_id) or asset
+            details = self.api.get_asset_details(asset_id) or asset
             tags_raw = details.get('tags', [])
             description = details.get('description', '').strip()
             if not description:
@@ -220,15 +225,17 @@ class ImmichExtractor:
                     date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
                 except Exception:
                     date_exif = re.sub(r'(\d{2}:\d{2}:\d{2})([.\d]*)?(Z|[+-]\d+:?\d+)?$', r'\1', date_exif)
-            image_path = find_image_file(file_name, self.search_paths)
+            image_path = find_image_file(file_name, self.search_paths, logger=self.logger)
             if not image_path:
-                logger.info(f"  ✗ Image file not found for asset: {file_name}")
-                error_count += 1
-                error_files.append(file_name)
+                status = 'not_found'
+                self.logger.audit(f"{file_name} : {status}")
+                skipped_count += 1
                 continue
             abs_image_path = os.path.abspath(image_path)
+            log_path = abs_image_path
             if abs_image_path in processed_files:
-                logger.info(f"  ✓ Already processed {image_path}, skipping duplicate.")
+                status = 'skipped'
+                self.logger.audit(f"{log_path} : {status}")
                 skipped_count += 1
                 continue
             processed_files.add(abs_image_path)
@@ -238,36 +245,37 @@ class ImmichExtractor:
                 image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=True
             )
             if result == 'skipped' and self.force_update_fuzzy and fuzzy_this_file['fuzzy']:
-                logger.info(
-                    "  (Force update) Fuzzy datetime match detected and --force-update-fuzzy set. "
-                    "Forcing update."
-                )
+                status = 'fuzzy_forced'
+                self.logger.audit(f"{log_path} : {status}")
                 result = ExifToolManager.update_exif(
                     image_path, description, tags, self.dry_run, date_exif, skip_if_unchanged=False
                 )
-            current_file_for_fuzzy['path'] = None
-            if result == 'updated':
-                updated_count += 1
+            elif result == 'skipped' and fuzzy_this_file['fuzzy']:
+                status = 'fuzzy_skipped'
+                self.logger.audit(f"{log_path} : {status}")
             elif result == 'skipped':
-                skipped_count += 1
+                status = 'skipped'
+                self.logger.audit(f"{log_path} : {status}")
+            elif result == 'updated':
+                status = 'updated'
+                self.logger.audit(f"{log_path} : {status}")
+                updated_count += 1
             else:
-                logger.info(f"  ✗ Error updating EXIF for file: {image_path}")
+                status = 'error'
+                self.logger.error(f"{log_path} : {status}")
                 error_count += 1
                 error_files.append(file_name)
+            current_file_for_fuzzy['path'] = None
+            # Progress indicator every 50 files
+            if i % 50 == 0:
+                self.logger.info(f"Processed {i}/{len(assets)} files...")
 
-        # Print summary to stdout only
-        print(f"\n{'='*50}")
-        print("SUMMARY")
-        print(f"{'='*50}")
-        print(f"Total assets processed: {len(assets)}")
-        print(f"Successfully updated: {updated_count}")
-        print(f"Skipped: {skipped_count}")
-        print(f"Fuzzy datetime matches: {len(fuzzy_match_files)}")
-        print(f"Errors: {error_count}")
-        if error_files:
-            print("\nError details:")
-            for ef in error_files:
-                print(f"  - {ef}")
-        if self.dry_run:
-            print("\nThis was a dry run. No files were actually modified.")
-        print(f"\nLog file: {self.log_path}")
+        # Return summary for logging by caller
+        return {
+            'total_assets': len(assets),
+            'updated_count': updated_count,
+            'skipped_count': skipped_count,
+            'fuzzy_match_count': len(fuzzy_match_files),
+            'error_count': error_count,
+            'error_files': error_files,
+        }

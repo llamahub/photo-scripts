@@ -39,6 +39,10 @@ from typing import Dict, Any, List
 
 
 class ScriptArgumentParser:
+    def error(self, message: str):
+        """Print error message and exit with status 2 (like argparse default)."""
+        print(f"❌ Error: {message}", file=sys.stderr)
+        sys.exit(2)
     """
     Standardized argument parser that generates CLI interfaces from configuration.
 

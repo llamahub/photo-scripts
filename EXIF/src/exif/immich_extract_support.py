@@ -53,20 +53,21 @@ class ExifToolManager:
     # ... (other methods as in original script)
 
 
-def find_image_file(file_name: str, search_paths: list) -> Optional[str]:
-    logger = logging.getLogger("extract")
-    logger.info(f"[DEBUG] find_image_file: Searching for '{file_name}' in {search_paths}")
+def find_image_file(file_name: str, search_paths: list, logger: logging.Logger = None) -> Optional[str]:
+    if logger is None:
+        logger = logging.getLogger("extract")
+    logger.debug(f"find_image_file: Searching for '{file_name}' in {search_paths}")
     for search_path in search_paths:
         search_dir = Path(search_path)
-        logger.info(f"[DEBUG] Searching directory: {search_dir}")
+        logger.debug(f"Searching directory: {search_dir}")
         if search_dir.exists():
             try:
                 for file_path in search_dir.rglob(file_name):
-                    logger.info(f"[DEBUG] Checking file: {file_path}")
+                    logger.debug(f"Checking file: {file_path}")
                     if file_path.is_file():
-                        logger.info(f"[DEBUG] Found file: {file_path}")
+                        logger.debug(f"Found file: {file_path}")
                         return str(file_path)
             except Exception as e:
-                logger.info(f"[DEBUG] Error searching {search_dir}: {e}")
-    logger.info(f"[DEBUG] File '{file_name}' not found in any search path.")
+                logger.debug(f"Error searching {search_dir}: {e}")
+    logger.debug(f"File '{file_name}' not found in any search path.")
     return None

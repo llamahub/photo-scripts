@@ -200,13 +200,18 @@ class ScriptLogging:
 
         # Create logger
 
+
         logger = logging.getLogger(name)
-        logger.setLevel(logging.DEBUG)
+        # Set logger and file handler level based on debug flag
+        AUDIT_LEVEL = 15
+        logging.addLevelName(AUDIT_LEVEL, "AUDIT")
 
-        # Clear any existing handlers to avoid duplicates
+        def audit(self, message, *args, **kwargs):
+            if self.isEnabledFor(AUDIT_LEVEL):
+                self._log(AUDIT_LEVEL, message, args, **kwargs)
+        logging.Logger.audit = audit
+
         logger.handlers.clear()
-
-        # Create formatters using config format
         console_formatter = logging.Formatter(
             config.log_format, datefmt="%Y-%m-%d %H:%M:%S"
         )
@@ -214,26 +219,21 @@ class ScriptLogging:
             config.log_format, datefmt="%Y-%m-%d %H:%M:%S"
         )
 
-        # Add custom AUDIT log level between DEBUG (10) and INFO (20)
-        AUDIT_LEVEL = 15
-        logging.addLevelName(AUDIT_LEVEL, "AUDIT")
-
-        def audit(self, message, *args, **kwargs):
-            if self.isEnabledFor(AUDIT_LEVEL):
-                self._log(AUDIT_LEVEL, message, args, **kwargs)
-
-        logging.Logger.audit = audit
-
         # Console handler (INFO and above)
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(console_level)
+        console_handler.setLevel(logging.INFO)
         console_handler.addFilter(lambda record: record.levelno >= logging.INFO)
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
 
-        # File handler (DEBUG and above, including AUDIT)
+        # File handler (AUDIT and above by default, DEBUG if verbose)
         file_handler = logging.FileHandler(log_file, mode="a")
-        file_handler.setLevel(file_level)
+        if debug:
+            file_handler.setLevel(logging.DEBUG)
+            logger.setLevel(logging.DEBUG)
+        else:
+            file_handler.setLevel(AUDIT_LEVEL)
+            logger.setLevel(AUDIT_LEVEL)
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
