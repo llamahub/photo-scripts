@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-=== [Example Script] - Template demonstrating consistent argument parsing
+=== [example_script] - Template for consistent CLI script structure
 ================================================================================
 
 This is a template script that demonstrates the consistent structure and argument
@@ -37,9 +37,10 @@ except ImportError:
     print("Warning: COMMON modules not available")
 
 # Script metadata
+SCRIPT_NAME = 'example_script'
 SCRIPT_INFO = {
-    'name': 'EXIF Example Script',
-    'description': 'Template demonstrating consistent argument parsing for EXIF scripts',
+    'name': SCRIPT_NAME,
+    'description': 'Template for consistent CLI script structure',
     'examples': [
         'input.jpg output.jpg',
         '--input input.jpg --output output.jpg --dry-run',
@@ -76,7 +77,7 @@ def main():
     
     # Create argument parser
     parser = ScriptArgumentParser(SCRIPT_INFO, ARGUMENTS)
-    
+
     # Print standardized header
     parser.print_header()
     
@@ -91,8 +92,8 @@ def main():
     
     # Setup logging with consistent pattern
     # Use script name without extension for proper log file naming
-    logger = parser.setup_logging(resolved_args, "example_script")
-    
+    logger = parser.setup_logging(resolved_args, SCRIPT_NAME)
+
     # Display configuration with EXIF-specific labels
     config_map = {
         'input_file': 'Input image file',

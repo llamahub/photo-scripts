@@ -283,7 +283,6 @@ class ImageAnalyzer(ImageData):
                 "height": height,
                 "target_filename": os.path.basename(target_filename),
             }
-
         except Exception as e:
             self.logger.error(f"Error analyzing {image_path}: {str(e)}")
             return {
@@ -296,6 +295,86 @@ class ImageAnalyzer(ImageData):
                 "height": "",
                 "target_filename": "",
             }
+
+    def analyze_single_summary(self, image_path):
+        """Public helper: return a compact summary for a single image.
+
+        Fields returned:
+            filepath, filename, target_filename, tags, true_ext,
+            description, image_date, filename_date, parent_date
+
+        This uses ImageData.get_exif() to request the canonical date fields
+        and other basic metadata (FileTypeExtension, ImageWidth, ImageHeight).
+        """
+        from .image_data import ImageData
+
+        if not image_path:
+            raise ValueError("image_path is required")
+
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"File not found: {image_path}")
+
+        # Use ImageData.get_exif to ensure prioritized date fields are requested
+        exif_meta = ImageData.get_exif(image_path) or {}
+
+        # Description (match existing ExifToolManager logic)
+        description = str(exif_meta.get("Description", "")).strip()
+
+        # Determine tags similar to ExifToolManager.norm_tags
+        def _norm_tags(val):
+            if isinstance(val, list):
+                return sorted([str(t).strip() for t in val])
+            if isinstance(val, str):
+                return sorted([t.strip() for t in val.split(",") if t.strip()])
+            return []
+
+        true_ext = ImageData.getTrueExt(image_path)
+        is_heic = true_ext.lower() in ["heic", "heif"]
+
+        if is_heic:
+            tags = _norm_tags(exif_meta.get("Subject", []))
+        else:
+            tags = _norm_tags(exif_meta.get("Keywords", []))
+
+        # Dates
+        image_date = ImageData.getImageDate(image_path)
+        filename_date = ImageData.getFilenameDate(image_path)
+        parent_name = ImageData.getParentName(image_path)
+        parent_date = ImageData.normalize_parent_date(parent_name)
+
+        # Target filename generation (use temp root for analysis consistency)
+        target_full = ImageData.getTargetFilename(image_path, "/tmp")
+        target_filename = os.path.basename(target_full)
+
+        # Include a small set of extracted fields for width/height if present
+        width = str(exif_meta.get("ImageWidth", ""))
+        height = str(exif_meta.get("ImageHeight", ""))
+
+        return {
+            "filepath": str(image_path),
+            "filename": os.path.basename(image_path),
+            "target_filename": target_filename,
+            "tags": tags,
+            "true_ext": true_ext,
+            "description": description,
+            "image_date": image_date,
+            "filename_date": filename_date,
+            "parent_date": parent_date,
+            # Raw EXIF date fields (returned in the requested order even if missing)
+            "DateTimeOriginal": exif_meta.get("DateTimeOriginal", ""),
+            "ExifIFD:DateTimeOriginal": exif_meta.get("ExifIFD:DateTimeOriginal", ""),
+            "XMP-photoshop:DateCreated": exif_meta.get("XMP-photoshop:DateCreated", ""),
+            "CreateDate": exif_meta.get("CreateDate", ""),
+            "ModifyDate": exif_meta.get("ModifyDate", ""),
+            "MediaCreateDate": exif_meta.get("MediaCreateDate", ""),
+            "MediaModifyDate": exif_meta.get("MediaModifyDate", ""),
+            "TrackCreateDate": exif_meta.get("TrackCreateDate", ""),
+            "TrackModifyDate": exif_meta.get("TrackModifyDate", ""),
+            "FileModifyDate": exif_meta.get("FileModifyDate", ""),
+            "FileTypeExtension": exif_meta.get("FileTypeExtension", ""),
+            "ImageWidth": width,
+            "ImageHeight": height,
+        }
 
     # Backward compatibility methods for test compatibility
     def _analyze_single_image(self, image_path):

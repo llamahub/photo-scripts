@@ -43,6 +43,7 @@ class ScriptArgumentParser:
         """Print error message and exit with status 2 (like argparse default)."""
         print(f"❌ Error: {message}", file=sys.stderr)
         sys.exit(2)
+
     """
     Standardized argument parser that generates CLI interfaces from configuration.
 
@@ -199,11 +200,18 @@ class ScriptArgumentParser:
 
         return self._parser.parse_args(args)
 
+    def get_header(self) -> str:
+        """Get a standardized script header using script info."""
+        header = "=" * 80 + "\n"
+        header += (
+            f"=== [{self.script_info['name']}] - {self.script_info['description']}\n"
+        )
+        header += "=" * 80 + "\n"
+        return header
+
     def print_header(self) -> None:
         """Print a standardized script header using script info."""
-        print("=" * 80)
-        print(f"=== [{self.script_info['name']}] - {self.script_info['description']}")
-        print("=" * 80)
+        print(self.get_header())
         print()
 
     def validate_required_args(

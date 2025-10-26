@@ -200,7 +200,6 @@ class ScriptLogging:
 
         # Create logger
 
-
         logger = logging.getLogger(name)
         # Set logger and file handler level based on debug flag
         AUDIT_LEVEL = 15
@@ -209,6 +208,7 @@ class ScriptLogging:
         def audit(self, message, *args, **kwargs):
             if self.isEnabledFor(AUDIT_LEVEL):
                 self._log(AUDIT_LEVEL, message, args, **kwargs)
+
         logging.Logger.audit = audit
 
         logger.handlers.clear()
@@ -243,20 +243,9 @@ class ScriptLogging:
 
         # Add header with log file info
         logger.info("=" * 80)
-        logger.info(f"LOG FILE: {log_file}")
-        logger.info(f"SCRIPT: {name}")
-        logger.info(f"DEBUG MODE: {debug}")
-        logger.info("=" * 80)
-
-        logger.info(f"Script logging initialized for {name} (debug: {debug})")
-        return logger
-
-        # Add header with log file info
+        logger.info(f"=== [{name}]")
         logger.info("=" * 80)
         logger.info(f"LOG FILE: {log_file}")
-        logger.info(f"SCRIPT: {name}")
         logger.info(f"DEBUG MODE: {debug}")
-        logger.info("=" * 80)
 
-        logger.info(f"Script logging initialized for {name} (debug: {debug})")
         return logger
