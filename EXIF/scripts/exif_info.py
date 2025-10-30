@@ -74,7 +74,9 @@ def main():
     input_val = getattr(args, 'input_file', None) or getattr(args, 'input', None)
     # COMMON argument parser may store the '--source' flag under either 'source' or 'source_dir'
     source_val = getattr(args, 'source_dir', None) or getattr(args, 'source', None)
-    output_val = getattr(args, 'output_file', None) or getattr(args, 'output', None)
+    # Detect whether the user explicitly provided an output path
+    provided_output = getattr(args, 'output_file', None) or getattr(args, 'output', None)
+    output_val = provided_output
 
     # Enforce mutual exclusivity: one of input or source must be provided
     if not input_val and not source_val:
@@ -98,6 +100,9 @@ def main():
 
         output_val = os.path.join(log_dir, f'exif_info_{now_ts}.csv')
 
+    # Remember whether output was explicitly provided by the user
+    output_was_provided = bool(provided_output)
+
     # Build resolved args dict (start from all parsed args and normalize keys)
     resolved_args = dict(vars(args))
     # Normalize keys expected by display/other helpers
@@ -106,6 +111,7 @@ def main():
     resolved_args['source'] = source_val
     resolved_args['output_file'] = output_val
     resolved_args['output'] = output_val
+    resolved_args['output_was_provided'] = output_was_provided
     
     # Setup logging with consistent pattern
     # Use script name without extension for proper log file naming
@@ -143,28 +149,56 @@ def main():
             logger.info(f"Analyzing single image: {input_path}")
             analyzer = ImageAnalyzer(output_path=resolved_args['output_file'])
 
-            # Use the public analyzer helper that returns the compact summary
-            single_result = analyzer.analyze_single_summary(input_path)
-            results = [single_result]
+            # Default single-file behavior: show full EXIF in INFO logs and do not
+            # write CSV unless the user explicitly passed --output. This makes
+            # the default interaction interactive/inspect-friendly.
+            try:
+                exif_full = analyzer.get_exif(input_path) or {}
+            except Exception as e:
+                exif_full = {}
+                logger.error(f"Error reading EXIF for {input_path}: {e}")
 
-            if resolved_args.get('dry_run'):
-                logger.info(f"Dry run: would write 1 analysis row to {resolved_args['output_file']}")
-            else:
-                # Write a compact CSV using the keys from the analyzer summary (preserve order)
-                out_path = resolved_args['output_file']
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                try:
-                    with open(out_path, 'w', newline='', encoding='utf-8') as csvfile:
-                        writer = csv.DictWriter(csvfile, fieldnames=list(single_result.keys()))
-                        writer.writeheader()
-                        # Convert any list values (tags) to comma-separated strings for CSV
-                        row = {k: (','.join(v) if isinstance(v, list) else v) for k, v in single_result.items()}
-                        writer.writerow(row)
+            # Pretty-print to logs (INFO) so it appears both in log files and console
+            try:
+                import json as _json
 
-                    logger.info(f"Wrote analysis CSV: {out_path}")
-                except Exception as e:
-                    logger.error(f"Failed to write CSV {out_path}: {e}")
-                    raise
+                pretty = _json.dumps(exif_full, indent=2, ensure_ascii=False)
+            except Exception:
+                pretty = str(exif_full)
+
+            logger.info(f"EXIF for {input_path}:\n{pretty}")
+
+            # If the user requested an explicit output, write a compact CSV
+            if output_was_provided:
+                single_result = analyzer.analyze_single_summary(input_path)
+                results = [single_result]
+
+                if resolved_args.get('dry_run'):
+                    logger.info(
+                        f"Dry run: would write 1 analysis row to {resolved_args['output_file']}"
+                    )
+                else:
+                    out_path = resolved_args['output_file']
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                    try:
+                        with open(out_path, 'w', newline='', encoding='utf-8') as csvfile:
+                            writer = csv.DictWriter(
+                                csvfile, fieldnames=list(single_result.keys())
+                            )
+                            writer.writeheader()
+                            # Convert any list values (tags) to comma-separated strings
+                            row = {}
+                            for k, v in single_result.items():
+                                if isinstance(v, list):
+                                    row[k] = ','.join(v)
+                                else:
+                                    row[k] = v
+                            writer.writerow(row)
+
+                        logger.info(f"Wrote analysis CSV: {out_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to write CSV {out_path}: {e}")
+                        raise
 
         else:
             # Otherwise analyze a source directory and produce the same compact

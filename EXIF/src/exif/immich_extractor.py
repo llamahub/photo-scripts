@@ -45,6 +45,24 @@ class ImmichExtractor:
                     break
 
     def run(self):
+        # --- CSV logging for EXIF log entries ---
+        import csv
+        from datetime import datetime
+        log_dir = Path('./.log')
+        log_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        csv_path = log_dir / f'immich_extract_{timestamp}.csv'
+        csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow([
+            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'error_msg'
+        ])
+
+        def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg):
+            csv_writer.writerow([
+                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg
+            ])
+            csv_file.flush()
         self.logger.debug("Entered ImmichExtractor.run()")
         self.logger.debug(
             f"ImmichExtractor configuration: search_path={self.search_path!r}, album={self.album!r}, search={self.search}, updated_after={self.updated_after!r}"
@@ -113,33 +131,53 @@ class ImmichExtractor:
             page = 1
             assets = []
             asset_count = 0
-            while True:
-                search_payload["page"] = page
-                resp = self.api.session.post(
-                    f"{self.api.base_url}/api/search/metadata", json=search_payload
-                )
-                resp.raise_for_status()
-                assets_raw = resp.json()
-                while isinstance(assets_raw, dict) and "data" in assets_raw:
-                    assets_raw = assets_raw["data"]
-                if isinstance(assets_raw, dict) and "assets" in assets_raw:
-                    assets_obj = assets_raw["assets"]
-                    if (
-                        isinstance(assets_obj, dict)
-                        and "items" in assets_obj
-                        and isinstance(assets_obj["items"], list)
-                    ):
-                        assets.extend(assets_obj["items"])
-                        asset_count += len(assets_obj["items"])
-                        if asset_count % 10000 == 0:
-                            self.logger.info(f"Fetched {asset_count} assets so far...")
-                        if assets_obj.get("nextPage"):
-                            page = int(assets_obj.get("nextPage"))
+            import requests
+            try:
+                while True:
+                    search_payload["page"] = page
+                    resp = self.api.session.post(
+                        f"{self.api.base_url}/api/search/metadata", json=search_payload
+                    )
+                    resp.raise_for_status()
+                    assets_raw = resp.json()
+                    while isinstance(assets_raw, dict) and "data" in assets_raw:
+                        assets_raw = assets_raw["data"]
+                    if isinstance(assets_raw, dict) and "assets" in assets_raw:
+                        assets_obj = assets_raw["assets"]
+                        if (
+                            isinstance(assets_obj, dict)
+                            and "items" in assets_obj
+                            and isinstance(assets_obj["items"], list)
+                        ):
+                            assets.extend(assets_obj["items"])
+                            asset_count += len(assets_obj["items"])
+                            if asset_count % 10000 == 0:
+                                self.logger.info(f"Fetched {asset_count} assets so far...")
+                            if assets_obj.get("nextPage"):
+                                page = int(assets_obj.get("nextPage"))
+                            else:
+                                break
+                        elif isinstance(assets_obj, list):
+                            assets.extend(assets_obj)
+                            asset_count += len(assets_obj)
+                            if asset_count % 10000 == 0:
+                                self.logger.info(f"Fetched {asset_count} assets so far...")
+                            if assets_raw.get("nextPage"):
+                                page = int(assets_raw.get("nextPage"))
+                            else:
+                                break
                         else:
+                            self.logger.info(
+                                "Error: Could not find asset list in search API response."
+                            )
                             break
-                    elif isinstance(assets_obj, list):
-                        assets.extend(assets_obj)
-                        asset_count += len(assets_obj)
+                    elif (
+                        isinstance(assets_raw, dict)
+                        and "assets" in assets_raw
+                        and isinstance(assets_raw["assets"], list)
+                    ):
+                        assets.extend(assets_raw["assets"])
+                        asset_count += len(assets_raw["assets"])
                         if asset_count % 10000 == 0:
                             self.logger.info(f"Fetched {asset_count} assets so far...")
                         if assets_raw.get("nextPage"):
@@ -151,25 +189,20 @@ class ImmichExtractor:
                             "Error: Could not find asset list in search API response."
                         )
                         break
-                elif (
-                    isinstance(assets_raw, dict)
-                    and "assets" in assets_raw
-                    and isinstance(assets_raw["assets"], list)
-                ):
-                    assets.extend(assets_raw["assets"])
-                    asset_count += len(assets_raw["assets"])
-                    if asset_count % 10000 == 0:
-                        self.logger.info(f"Fetched {asset_count} assets so far...")
-                    if assets_raw.get("nextPage"):
-                        page = int(assets_raw.get("nextPage"))
-                    else:
-                        break
-                else:
-                    self.logger.info(
-                        "Error: Could not find asset list in search API response."
-                    )
-                    break
-            self.logger.info(f"Found {len(assets)} assets via search.")
+                self.logger.info(f"Found {len(assets)} assets via search.")
+            except (requests.ConnectionError, requests.exceptions.RequestException) as e:
+                self.logger.error("Unable to connect to Immich server. This may be a DNS/network issue.")
+                self.logger.error("If you see a 'Temporary failure in name resolution' or similar error, try running the 'reset_dns' script and re-run this command.")
+                self.logger.error(f"Details: {e}")
+                return {
+                    "total_assets": 0,
+                    "updated_count": 0,
+                    "skipped_count": 0,
+                    "fuzzy_match_count": 0,
+                    "error_count": 1,
+                    "error_files": [],
+                    "audit_status_counts": {"connection_error": 1},
+                }
         else:
             self.logger.info(f"Fetching assets for album {self.album}...")
             assets = self.api.get_album_assets(self.album)
@@ -220,9 +253,10 @@ class ImmichExtractor:
             error_msg = ""
             if not file_name:
                 status = "no_filename"
-                self.logger.error(
-                    f"[EXIF],{''},{status},{''},{''},{''},{''},{''},{''},{''}"
-                )
+                log_path = ''
+                current_desc = target_desc = current_tags = target_tags = current_date = target_date = error_msg = ''
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -306,9 +340,10 @@ class ImmichExtractor:
                 )
             if not image_path:
                 status = "not_found"
-                self.logger.error(
-                    f"[EXIF],{file_name},{status},{''},{''},{''},{''},{''},{''},{''}"
-                )
+                log_path = file_name
+                current_desc = target_desc = current_tags = target_tags = current_date = target_date = error_msg = ''
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -366,10 +401,8 @@ class ImmichExtractor:
                 target_desc = description
                 target_tags = ";".join(sorted([str(t) for t in tags]))
                 target_date = date_exif
-                self.logger.error(
-                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
-                    f"{current_date},{target_date},{error_msg}"
-                )
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
             target_desc = description
             target_tags = ";".join(sorted([str(t) for t in tags]))
             target_date = date_exif
@@ -389,10 +422,8 @@ class ImmichExtractor:
             ):
                 status = "fuzzy_forced"
                 error_msg = "fuzzy match forced update"
-                self.logger.audit(
-                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
-                    f"{current_date},{target_date},{error_msg}"
-                )
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 result = ExifToolManager.update_exif(
                     image_path,
@@ -405,187 +436,37 @@ class ImmichExtractor:
                 )
             elif result == "skipped" and fuzzy_this_file["fuzzy"]:
                 status = "fuzzy_skipped"
-                error_msg = (
-                    "fuzzy match: EXIF datetimes within 24h and minutes/seconds match"
-                )
-                self.logger.audit(
-                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
-                    f"{current_date},{target_date},{error_msg}"
-                )
+                error_msg = "fuzzy match: EXIF datetimes within 24h and minutes/seconds match"
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "skipped":
                 status = "skipped"
                 error_msg = "EXIF already matches"
-                self.logger.audit(
-                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
-                    f"{current_date},{target_date},{error_msg}"
-                )
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "updated":
                 status = "updated"
-                self.logger.audit(
-                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
-                    f"{current_date},{target_date},{error_msg}"
-                )
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 updated_count += 1
             else:
                 status = "error"
                 error_msg = "Update failed"
-                self.logger.error(
-                    f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},"
-                    f"{current_date},{target_date},{error_msg}"
-                )
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 error_count += 1
                 error_files.append(file_name)
+
             current_file_for_fuzzy["path"] = None
             # Progress indicator every 50 files
             if i % 50 == 0:
                 self.logger.info(f"Processed {i}/{len(assets)} files...")
 
-        # Return summary for logging by caller
-        return {
-            "total_assets": len(assets),
-            "updated_count": updated_count,
-            "skipped_count": skipped_count,
-            "fuzzy_match_count": len(fuzzy_match_files),
-            "error_count": error_count,
-            "error_files": error_files,
-            "audit_status_counts": audit_status_counts,
-        }
-        for i, asset in enumerate(assets, 1):
-            asset_id = asset.get("id")
-            file_name = asset.get("originalFileName")
-            status = None
-            log_path = None
-            if not file_name:
-                status = "no_filename"
-                self.logger.audit(f"[AUDIT] (asset {asset_id}) : {status}")
-                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
-                skipped_count += 1
-                continue
-            details = self.api.get_asset_details(asset_id) or asset
-            tags_raw = details.get("tags", [])
-            description = details.get("description", "").strip()
-            if not description:
-                exif_info = details.get("exifInfo", {})
-                description = exif_info.get("description", "").strip()
-            tags = []
-            for t in tags_raw:
-                if isinstance(t, dict):
-                    if "name" in t:
-                        tags.append(t["name"])
-                    elif "value" in t:
-                        tags.append(t["value"])
-                elif isinstance(t, str):
-                    tags.append(t)
-            album_names = album_cache.get(asset_id, [])
-            tags = sorted(set(tags + album_names))
-            date_original = details.get("dateTimeOriginal", "")
-            if not date_original:
-                exif_info = details.get("exifInfo", {})
-                date_original = exif_info.get("dateTimeOriginal", "")
-            date_exif = ""
-            if date_original:
-                import re
-                from datetime import datetime, timezone
+        # Close CSV file
+        csv_file.close()
 
-                date_exif = re.sub(r"T", " ", date_original)
-                date_exif = re.sub(r"-", ":", date_exif, count=2)
-                try:
-                    dt = None
-                    if "Z" in date_exif or "+" in date_exif or "-" in date_exif[10:]:
-                        dt = datetime.fromisoformat(
-                            date_original.replace("Z", "+00:00")
-                        )
-                    else:
-                        dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    dt_utc = dt.astimezone(timezone.utc)
-                    date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
-                except Exception:
-                    date_exif = re.sub(
-                        r"(\d{2}:\d{2}:\d{2})([.\d]*)?(Z|[+-]\d+:?\d+)?$",
-                        r"\1",
-                        date_exif,
-                    )
-            image_path = find_image_file(
-                file_name, self.search_path, logger=self.logger
-            )
-            if not image_path:
-                status = "not_found"
-                self.logger.audit(f"{file_name} : {status}")
-                skipped_count += 1
-                continue
-            abs_image_path = os.path.abspath(image_path)
-            log_path = abs_image_path
-            if abs_image_path in processed_files:
-                status = "skipped"
-                self.logger.audit(f"{log_path} : {status}")
-                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
-                skipped_count += 1
-                continue
-            processed_files.add(abs_image_path)
-            current_file_for_fuzzy["path"] = abs_image_path
-            fuzzy_this_file["fuzzy"] = False
-            result = ExifToolManager.update_exif(
-                image_path,
-                description,
-                tags,
-                self.dry_run,
-                date_exif,
-                skip_if_unchanged=True,
-                logger=self.logger,
-            )
-            if (
-                result == "skipped"
-                and self.force_update_fuzzy
-                and fuzzy_this_file["fuzzy"]
-            ):
-                status = "fuzzy_forced"
-                self.logger.audit(f"{log_path} : {status}")
-                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
-                result = ExifToolManager.update_exif(
-                    image_path,
-                    description,
-                    tags,
-                    self.dry_run,
-                    date_exif,
-                    skip_if_unchanged=False,
-                    logger=self.logger,
-                )
-            elif result == "skipped" and fuzzy_this_file["fuzzy"]:
-                status = "fuzzy_skipped"
-                self.logger.audit(f"{log_path} : {status}")
-                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
-            elif result == "skipped":
-                status = "skipped"
-                self.logger.audit(f"{log_path} : {status}")
-                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
-            elif result == "updated":
-                status = "updated"
-                self.logger.audit(f"{log_path} : {status}")
-                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
-                updated_count += 1
-            else:
-                status = "error"
-                self.logger.error(f"{log_path} : {status}")
-                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
-                error_count += 1
-                error_files.append(file_name)
-            current_file_for_fuzzy["path"] = None
-            # Progress indicator every 50 files
-            if i % 50 == 0:
-                self.logger.info(f"Processed {i}/{len(assets)} files...")
-
-        # Return summary for logging by caller
-        return {
-            "total_assets": len(assets),
-            "updated_count": updated_count,
-            "skipped_count": skipped_count,
-            "fuzzy_match_count": len(fuzzy_match_files),
-            "error_count": error_count,
-            "error_files": error_files,
-            "audit_status_counts": audit_status_counts,
-        }
+        # Close CSV file and return summary for logging by caller
