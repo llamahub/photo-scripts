@@ -57,3 +57,7 @@
     - set up argument parser and resolve args
     - set up common logger and print standard header / configuration
     - execute main flow leveraging calls to business logic classes
+
+5. Use COMMON framework for testing, logging and temp file manaerment
+
+6. Ensure all business logic classes have unit tests and there are tests for the CLI script as well
