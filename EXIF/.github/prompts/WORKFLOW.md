@@ -11,7 +11,7 @@
 * structure = {decade}/{YYYY}/{YYYY-MM}/{Parent Folder}/{Filename}.{ext}
 
 ```jsonc
-. run organize mnt/server_drive2/images-originals/{source} /mnt/photo_drive/images-originals/{target}
+. run organize /mnt/server_drive2/images-originals/{source} /mnt/photo_drive/images-originals/{target}
 ```
 
 **find_dups:** Compare against target library and highlight filename dups
@@ -38,7 +38,7 @@
 
 ```bash
 # organize
-. run organize mnt/server_drive2/images-originals/Austin_and_McKenna /mnt/photo_drive/images-originals/Austin_and_McKenna
+. run organize /mnt/server_drive2/images-originals/Austin_and_McKenna /mnt/photo_drive/images-originals/Austin_and_McKenna
 
 # find_dups
 . run find_dups /mnt/photo_drive/images-originals/Austin_and_McKenna /mnt/photo_drive/santee-images --output /mnt/photo_drive/AandM_dups.csv

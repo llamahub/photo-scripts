@@ -324,15 +324,30 @@ class ImageData:
         return parent
 
     @classmethod
-    def getTargetFilename(cls, sourceFilePath, targetRoot, label=""):
+    def getNormalizedFilename(cls, sourceFilePath, label=""):
+        """
+        Generate a normalized filename with metadata-based naming convention.
+        
+        Format: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
+        
+        Args:
+            sourceFilePath: Path to the source file
+            label: Optional label to include in filename
+            
+        Returns:
+            str: Normalized filename (without directory path)
+        """
         parentName = cls.getParentName(sourceFilePath)
         baseName = Path(sourceFilePath).stem
+        
+        # If the file already has normalized naming, extract the original basename
         target_pat = re.compile(
             r"^\d{4}-\d{2}-\d{2}_[0-9]{4}(?:_[^_]+)?_[0-9]+x[0-9]+(?:_[^_]+)?_(.+)$"
         )
         m = target_pat.match(baseName)
         if m:
             baseName = m.group(1)
+        
         trueExt = cls.getTrueExt(sourceFilePath)
         width, height = cls.getImageSize(sourceFilePath)
         imageDate = cls.getImageDate(sourceFilePath)
@@ -340,14 +355,47 @@ class ImageData:
             imageDate = cls.getFilenameDate(sourceFilePath)
         if not imageDate:
             imageDate = "1900-01-01 00:00"
+        
         year = imageDate[:4]
         month = imageDate[5:7]
         day = imageDate[8:10]
         hour = imageDate[11:13] if len(imageDate) > 10 else "00"
         minute = imageDate[14:16] if len(imageDate) > 13 else "00"
+        
         parentPart = f"_{parentName}" if parentName else ""
+        labelPart = f"_{label}" if label else ""
+        
+        filename = f"{year}-{month}-{day}_{hour}{minute}{labelPart}_{width}x{height}{parentPart}_{baseName}.{trueExt}"
+        return filename
+    
+    @classmethod
+    def getTargetFilename(cls, sourceFilePath, targetRoot, label=""):
+        """
+        Get the full target path including directory structure and normalized filename.
+        
+        Args:
+            sourceFilePath: Path to the source file
+            targetRoot: Root directory for organized files
+            label: Optional label to include in filename
+            
+        Returns:
+            str: Full path to target file
+        """
+        parentName = cls.getParentName(sourceFilePath)
+        imageDate = cls.getImageDate(sourceFilePath)
+        if not imageDate:
+            imageDate = cls.getFilenameDate(sourceFilePath)
+        if not imageDate:
+            imageDate = "1900-01-01 00:00"
+        
+        year = imageDate[:4]
+        month = imageDate[5:7]
+        
         labelPart = f"_{label}" if label else ""
         folderName = parentName if parentName else f"{year}-{month}{labelPart}"
         targetFolderPath = os.path.join(targetRoot, year, folderName)
-        filename = f"{year}-{month}-{day}_{hour}{minute}{labelPart}_{width}x{height}{parentPart}_{baseName}.{trueExt}"
+        
+        # Use getNormalizedFilename for the filename
+        filename = cls.getNormalizedFilename(sourceFilePath, label)
+        
         return os.path.join(targetFolderPath, filename)
