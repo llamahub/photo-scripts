@@ -15,6 +15,11 @@
 	// "postCreateCommand": "uname -a",
 	"postCreateCommand": "./setup-system-deps.sh",
 
+	// Mount Movies folder from host to access media files
+	"mounts": [
+		"source=${localEnv:HOME}/Movies,target=/media/Movies,type=bind,consistency=cached"
+	],
+
 	// Configure tool-specific properties.
 	// "customizations": {},
 

@@ -1,0 +1,1 @@
+. run organize /Users/rex/Movies/'Austin and McKenna Wedding'/AM.dvp /Users/rex/Movies/'Austin and McKenna Wedding'/AM2.dvp --media-root /Users/rex/Movies/'Austin and McKenna Wedding'
