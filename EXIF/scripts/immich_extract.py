@@ -75,6 +75,17 @@ SCRIPT_ARGUMENTS = {
         'flag': '--force-update-fuzzy',
         'action': 'store_true',
         'help': 'Force update files with fuzzy datetime matches'
+    },
+    'disable_sidecars': {
+        'flag': '--disable-sidecars',
+        'action': 'store_true',
+        'help': 'Rename sidecar files (.xmp, .supplemental-metadata.json) to .bak to prevent Immich from re-injecting old metadata'
+    },
+    'exif_timezone': {
+        'flag': '--exif-timezone',
+        'dest': 'exif_timezone',
+        'default': 'America/New_York',
+        'help': 'Timezone of EXIF dates in source files (e.g., America/New_York, UTC, Europe/London). Default: America/New_York'
     }
 }
 
@@ -148,6 +159,8 @@ def main():
         'use_album_cache': 'Use local album cache',
         'log_file': 'Log file',
         'force_update_fuzzy': 'Force update fuzzy datetime matches',
+        'disable_sidecars': 'Disable sidecar files',
+        'exif_timezone': 'EXIF timezone',
         'dry_run': 'Dry run',
         'verbose': 'Verbose',
         'quiet': 'Quiet'
@@ -179,6 +192,8 @@ def main():
         use_album_cache=resolved_args.get('use_album_cache', False),
         dry_run=resolved_args.get('dry_run', False),
         force_update_fuzzy=resolved_args.get('force_update_fuzzy', False),
+        disable_sidecars=resolved_args.get('disable_sidecars', False),
+        exif_timezone=resolved_args.get('exif_timezone'),
         logger=logger
     )
     result = extractor.run()    # Log summary output including grouped AUDIT status counts
@@ -191,6 +206,9 @@ def main():
         logger.info(f"Skipped: {result.get('skipped_count', 0)}")
         logger.info(f"Fuzzy datetime matches: {result.get('fuzzy_match_count', 0)}")
         logger.info(f"Errors: {result.get('error_count', 0)}")
+        sidecars_disabled = result.get('sidecars_disabled', 0)
+        if sidecars_disabled > 0:
+            logger.info(f"Sidecars disabled: {sidecars_disabled}")
         # Grouped AUDIT status summary
         audit_status_counts = result.get('audit_status_counts', {})
         if audit_status_counts:

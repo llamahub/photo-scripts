@@ -6,6 +6,9 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
+import logging
+# Import logging setup to enable audit() method on Logger
+import common.logging
 from common.temp import TempManager
 from exif.immich_extract_support import ImmichAPI, ExifToolManager, find_image_file
 from exif.immich_extractor import ImmichExtractor
@@ -238,6 +241,276 @@ class TestFindImageFile(unittest.TestCase):
             with patch("exif.immich_extract_support.Path.rglob", return_value=[]):
                 result = find_image_file("test.jpg", str(temp_dir))
                 self.assertIsNone(result)
+
+
+class TestDisableSidecars(unittest.TestCase):
+    """Tests for the --disable-sidecars feature"""
+
+    def test_disable_sidecar_files_xmp_only(self):
+        """Test renaming .xmp sidecar files"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test image and sidecar
+            image_path = os.path.join(tmpdir, "test.jpg")
+            xmp_path = os.path.join(tmpdir, "test.jpg.xmp")
+            
+            # Create dummy files
+            open(image_path, 'w').close()
+            open(xmp_path, 'w').close()
+            
+            import logging
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=False,
+            )
+            
+            # Call the method with the image path in processed_files
+            result = extractor._disable_sidecar_files({image_path})
+            
+            # Verify sidecar was renamed
+            self.assertEqual(result, 1)
+            self.assertFalse(os.path.exists(xmp_path))
+            self.assertTrue(os.path.exists(f"{xmp_path}.bak"))
+
+    def test_disable_sidecar_files_json_only(self):
+        """Test renaming .supplemental-metadata.json sidecar files"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test image and sidecar
+            image_path = os.path.join(tmpdir, "test.jpg")
+            json_path = os.path.join(tmpdir, "test.jpg.supplemental-metadata.json")
+            
+            # Create dummy files
+            open(image_path, 'w').close()
+            open(json_path, 'w').close()
+            
+            import logging
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=False,
+            )
+            
+            # Call the method with the image path in processed_files
+            result = extractor._disable_sidecar_files({image_path})
+            
+            # Verify sidecar was renamed
+            self.assertEqual(result, 1)
+            self.assertFalse(os.path.exists(json_path))
+            self.assertTrue(os.path.exists(f"{json_path}.bak"))
+
+    def test_disable_sidecar_files_both_types(self):
+        """Test renaming both .xmp and .supplemental-metadata.json sidecars"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test image and sidecars
+            image_path = os.path.join(tmpdir, "test.jpg")
+            xmp_path = os.path.join(tmpdir, "test.jpg.xmp")
+            json_path = os.path.join(tmpdir, "test.jpg.supplemental-metadata.json")
+            
+            # Create dummy files
+            open(image_path, 'w').close()
+            open(xmp_path, 'w').close()
+            open(json_path, 'w').close()
+            
+            import logging
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=False,
+            )
+            
+            # Call the method with the image path in processed_files
+            result = extractor._disable_sidecar_files({image_path})
+            
+            # Verify both sidecars were renamed
+            self.assertEqual(result, 2)
+            self.assertFalse(os.path.exists(xmp_path))
+            self.assertFalse(os.path.exists(json_path))
+            self.assertTrue(os.path.exists(f"{xmp_path}.bak"))
+            self.assertTrue(os.path.exists(f"{json_path}.bak"))
+
+    def test_disable_sidecar_files_no_sidecars(self):
+        """Test when no sidecar files exist"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test image without sidecars
+            image_path = os.path.join(tmpdir, "test.jpg")
+            open(image_path, 'w').close()
+            
+            import logging
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=False,
+            )
+            
+            # Call the method with the image path in processed_files
+            result = extractor._disable_sidecar_files({image_path})
+            
+            # Verify count is 0
+            self.assertEqual(result, 0)
+
+    def test_disable_sidecar_files_dry_run(self):
+        """Test that dry-run mode doesn't actually rename files"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test image and sidecar
+            image_path = os.path.join(tmpdir, "test.jpg")
+            xmp_path = os.path.join(tmpdir, "test.jpg.xmp")
+            json_path = os.path.join(tmpdir, "test.jpg.supplemental-metadata.json")
+            
+            # Create dummy files
+            open(image_path, 'w').close()
+            open(xmp_path, 'w').close()
+            open(json_path, 'w').close()
+            
+            import logging
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=True,  # Enable dry-run
+            )
+            
+            # Call the method with the image path in processed_files
+            result = extractor._disable_sidecar_files({image_path})
+            
+            # Verify count is still 2 (operation counted but not performed)
+            self.assertEqual(result, 2)
+            # Verify files were NOT actually renamed
+            self.assertTrue(os.path.exists(xmp_path))
+            self.assertTrue(os.path.exists(json_path))
+            self.assertFalse(os.path.exists(f"{xmp_path}.bak"))
+            self.assertFalse(os.path.exists(f"{json_path}.bak"))
+
+    def test_disable_sidecar_files_multiple_images(self):
+        """Test disabling sidecars for multiple images"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create multiple images with sidecars
+            images = []
+            for i in range(3):
+                image_path = os.path.join(tmpdir, f"test{i}.jpg")
+                xmp_path = os.path.join(tmpdir, f"test{i}.jpg.xmp")
+                open(image_path, 'w').close()
+                open(xmp_path, 'w').close()
+                images.append(image_path)
+            
+            import logging
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=False,
+            )
+            
+            # Call the method with all image paths
+            result = extractor._disable_sidecar_files(set(images))
+            
+            # Verify all sidecars were renamed (3 files)
+            self.assertEqual(result, 3)
+            for i in range(3):
+                xmp_path = os.path.join(tmpdir, f"test{i}.jpg.xmp")
+                self.assertFalse(os.path.exists(xmp_path))
+                self.assertTrue(os.path.exists(f"{xmp_path}.bak"))
+
+    def test_disable_sidecar_files_preserves_data(self):
+        """Test that renamed files preserve their content"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test image and sidecar with content
+            image_path = os.path.join(tmpdir, "test.jpg")
+            xmp_path = os.path.join(tmpdir, "test.jpg.xmp")
+            xmp_content = "<rdf>test metadata</rdf>"
+            
+            open(image_path, 'w').close()
+            with open(xmp_path, 'w') as f:
+                f.write(xmp_content)
+            
+            import logging
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=False,
+            )
+            
+            # Call the method
+            extractor._disable_sidecar_files({image_path})
+            
+            # Verify content was preserved
+            with open(f"{xmp_path}.bak", 'r') as f:
+                content = f.read()
+            self.assertEqual(content, xmp_content)
+
+    def test_disable_sidecar_files_empty_set(self):
+        """Test with empty processed_files set - should disable ALL sidecars in search path"""
+        import logging
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = logging.getLogger("test_disable_sidecars")
+            
+            # Create test sidecars
+            img = os.path.join(tmpdir, "test.jpg")
+            xmp = f"{img}.xmp"
+            json_file = f"{img}.supplemental-metadata.json"
+            
+            open(img, 'w').close()
+            open(xmp, 'w').close()
+            open(json_file, 'w').close()
+            
+            extractor = ImmichExtractor(
+                url="http://test",
+                api_key="key",
+                search_path=tmpdir,
+                album="test",
+                disable_sidecars=True,
+                logger=logger,
+                dry_run=False,
+            )
+            
+            # Call the method with empty set - should still find and disable all sidecars
+            result = extractor._disable_sidecar_files(set())
+            
+            # Verify all sidecars were disabled (now processes ALL sidecars in path)
+            self.assertEqual(result, 2)
+            self.assertFalse(os.path.exists(xmp))
+            self.assertFalse(os.path.exists(json_file))
+            self.assertTrue(os.path.exists(f"{xmp}.bak"))
+            self.assertTrue(os.path.exists(f"{json_file}.bak"))
 
 
 if __name__ == "__main__":

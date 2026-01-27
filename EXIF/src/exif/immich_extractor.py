@@ -7,6 +7,19 @@ from .immich_config import ImmichConfig
 from .immich_extract_support import ImmichAPI, ExifToolManager, find_image_file
 
 
+def exif_date_to_iso(exif_date: str) -> str:
+    """
+    Convert EXIF date format (YYYY:MM:DD HH:MM:SS) to ISO format (YYYY-MM-DD HH:MM:SS).
+    This makes dates Excel-compatible.
+    """
+    if not exif_date:
+        return exif_date
+    # Replace colons with hyphens in the date part (first 10 chars)
+    if len(exif_date) >= 10:
+        return exif_date[:4] + "-" + exif_date[5:7] + "-" + exif_date[8:10] + exif_date[10:]
+    return exif_date
+
+
 class ImmichExtractor:
     def __init__(
         self,
@@ -21,6 +34,8 @@ class ImmichExtractor:
         use_album_cache: bool = False,
         dry_run: bool = False,
         force_update_fuzzy: bool = False,
+        disable_sidecars: bool = False,
+        exif_timezone: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
     ):
         self.url = url
@@ -29,11 +44,13 @@ class ImmichExtractor:
         self.album = album
         self.search = search
         self.updated_after = updated_after
+        self.exif_timezone = exif_timezone
         self.search_archive = search_archive
         self.refresh_album_cache = refresh_album_cache
         self.use_album_cache = use_album_cache
         self.dry_run = dry_run
         self.force_update_fuzzy = force_update_fuzzy
+        self.disable_sidecars = disable_sidecars
         self.logger = logger or logging.getLogger("extract")
         self.api = ImmichAPI(url, api_key)
         # Try to get log file path from logger handlers
@@ -55,12 +72,12 @@ class ImmichExtractor:
         csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow([
-            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'error_msg'
+            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'error_msg'
         ])
 
-        def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg):
+        def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, error_msg):
             csv_writer.writerow([
-                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg
+                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, error_msg
             ])
             csv_file.flush()
         self.logger.debug("Entered ImmichExtractor.run()")
@@ -254,9 +271,9 @@ class ImmichExtractor:
             if not file_name:
                 status = "no_filename"
                 log_path = ''
-                current_desc = target_desc = current_tags = target_tags = current_date = target_date = error_msg = ''
-                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                current_desc = target_desc = current_tags = target_tags = current_date = target_date = current_offset = target_offset = error_msg = ''
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -281,7 +298,9 @@ class ImmichExtractor:
             if not date_original:
                 exif_info = details.get("exifInfo", {})
                 date_original = exif_info.get("dateTimeOriginal", "")
+            
             date_exif = ""
+            date_exif_offset = "+00:00"  # Always write UTC with +00:00 offset
             if date_original:
                 import re
                 from datetime import datetime, timezone
@@ -290,15 +309,32 @@ class ImmichExtractor:
                 date_exif = re.sub(r"-", ":", date_exif, count=2)
                 try:
                     dt = None
-                    if "Z" in date_exif or "+" in date_exif or "-" in date_exif[10:]:
+                    # Check if date has timezone info in the raw string
+                    if "Z" in date_original or "+" in date_original or "-" in date_original[10:]:
+                        # Has timezone info - parse and convert to UTC
                         dt = datetime.fromisoformat(
                             date_original.replace("Z", "+00:00")
                         )
+                        dt_utc = dt.astimezone(timezone.utc)
+                        date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
                     else:
-                        dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    dt_utc = dt.astimezone(timezone.utc)
-                    date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
+                        # No timezone info - interpret as specified timezone (or server timezone if not specified)
+                        if self.exif_timezone:
+                            from zoneinfo import ZoneInfo
+                            try:
+                                tz = ZoneInfo(self.exif_timezone)
+                                dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
+                                dt = dt.replace(tzinfo=tz)
+                                dt_utc = dt.astimezone(timezone.utc)
+                                date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
+                            except Exception as e:
+                                self.logger.warning(f"Could not parse timezone '{self.exif_timezone}': {e}. Using UTC as fallback.")
+                                dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
+                                dt = dt.replace(tzinfo=timezone.utc)
+                        else:
+                            # No timezone specified - assume UTC (legacy behavior)
+                            dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
+                            dt = dt.replace(tzinfo=timezone.utc)
                 except Exception:
                     date_exif = re.sub(
                         r"(\d{2}:\d{2}:\d{2})([.\d]*)?(Z|[+-]\d+:?\d+)?$",
@@ -341,9 +377,9 @@ class ImmichExtractor:
             if not image_path:
                 status = "not_found"
                 log_path = file_name
-                current_desc = target_desc = current_tags = target_tags = current_date = target_date = error_msg = ''
-                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                current_desc = target_desc = current_tags = target_tags = current_date = target_date = current_offset = target_offset = error_msg = ''
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -359,7 +395,7 @@ class ImmichExtractor:
                 status = "skipped"
                 error_msg = f"not in search paths: {abs_image_path}"
                 self.logger.audit(
-                    f"[EXIF],{log_path},{status},{''},{''},{''},{''},{''},{''},{error_msg}"
+                    f"[EXIF],{log_path},{status},,,,,,,,,,{error_msg}"
                 )
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
@@ -368,7 +404,7 @@ class ImmichExtractor:
                 status = "skipped"
                 error_msg = "duplicate: already processed in this run"
                 self.logger.audit(
-                    f"[EXIF],{log_path},{status},{''},{''},{''},{''},{''},{''},{error_msg}"
+                    f"[EXIF],{log_path},{status},,,,,,,,,,{error_msg}"
                 )
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
@@ -392,20 +428,24 @@ class ImmichExtractor:
                 else:
                     current_tags = str(current_tags)
                 current_date = exif_data.get("DateTimeOriginal", "")
+                current_offset = exif_data.get("OffsetTimeOriginal", "")
             except Exception as e:
                 current_desc = ""
                 current_tags = ""
                 current_date = ""
+                current_offset = ""
                 error_msg = f"EXIF read error: {e}"
                 status = "error"
                 target_desc = description
                 target_tags = ";".join(sorted([str(t) for t in tags]))
                 target_date = date_exif
-                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                target_offset = "+00:00" if date_exif else ""
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
             target_desc = description
             target_tags = ";".join(sorted([str(t) for t in tags]))
             target_date = date_exif
+            target_offset = "+00:00" if date_exif else ""
             result = ExifToolManager.update_exif(
                 image_path,
                 description,
@@ -414,6 +454,7 @@ class ImmichExtractor:
                 date_exif,
                 skip_if_unchanged=True,
                 logger=self.logger,
+                date_exif_offset="+00:00" if date_exif else None,
             )
             if (
                 result == "skipped"
@@ -422,8 +463,8 @@ class ImmichExtractor:
             ):
                 status = "fuzzy_forced"
                 error_msg = "fuzzy match forced update"
-                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 result = ExifToolManager.update_exif(
                     image_path,
@@ -433,30 +474,31 @@ class ImmichExtractor:
                     date_exif,
                     skip_if_unchanged=False,
                     logger=self.logger,
+                    date_exif_offset="+00:00" if date_exif else None,
                 )
             elif result == "skipped" and fuzzy_this_file["fuzzy"]:
                 status = "fuzzy_skipped"
                 error_msg = "fuzzy match: EXIF datetimes within 24h and minutes/seconds match"
-                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "skipped":
                 status = "skipped"
                 error_msg = "EXIF already matches"
-                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "updated":
                 status = "updated"
-                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 updated_count += 1
             else:
                 status = "error"
                 error_msg = "Update failed"
-                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{current_date},{target_date},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, error_msg)
+                self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 error_count += 1
                 error_files.append(file_name)
@@ -469,4 +511,80 @@ class ImmichExtractor:
         # Close CSV file
         csv_file.close()
 
+        # Disable sidecar files if requested
+        sidecars_disabled = 0
+        if self.disable_sidecars:
+            self.logger.info("\n" + "="*50)
+            self.logger.info("Disabling sidecar files...")
+            self.logger.info("="*50)
+            sidecars_disabled = self._disable_sidecar_files(processed_files)
+
         # Close CSV file and return summary for logging by caller
+        return {
+            "total_assets": len(assets),
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
+            "fuzzy_match_count": len(fuzzy_match_files),
+            "error_count": error_count,
+            "error_files": error_files,
+            "audit_status_counts": audit_status_counts,
+            "sidecars_disabled": sidecars_disabled,
+        }
+
+    def _disable_sidecar_files(self, processed_files):
+        """
+        Rename sidecar files (.xmp and .supplemental-metadata.json) to .bak.
+        Scans the search_path recursively for ALL sidecars and disables them,
+        regardless of whether they correspond to processed files.
+        """
+        from pathlib import Path
+        
+        sidecars_disabled = 0
+        xmp_count = 0
+        json_count = 0
+        error_count = 0
+        
+        search_path_obj = Path(self.search_path)
+        
+        # Scan for and disable ALL .xmp files
+        self.logger.debug(f"Scanning for .xmp sidecars in {self.search_path}")
+        for xmp_path in search_path_obj.rglob("*.xmp"):
+            xmp_path_str = str(xmp_path)
+            xmp_bak_path = f"{xmp_path_str}.bak"
+            try:
+                if self.dry_run:
+                    self.logger.audit(f"[DRY RUN] Would rename sidecar: {xmp_path.name}")
+                else:
+                    os.rename(xmp_path_str, xmp_bak_path)
+                    self.logger.audit(f"Renamed sidecar: {xmp_path_str} -> {xmp_bak_path}")
+                sidecars_disabled += 1
+                xmp_count += 1
+            except Exception as e:
+                self.logger.error(f"Failed to disable sidecar {xmp_path_str}: {e}")
+                error_count += 1
+        
+        # Scan for and disable ALL .supplemental-metadata.json files
+        self.logger.debug(f"Scanning for .supplemental-metadata.json sidecars in {self.search_path}")
+        for json_path in search_path_obj.rglob("*.supplemental-metadata.json"):
+            json_path_str = str(json_path)
+            json_bak_path = f"{json_path_str}.bak"
+            try:
+                if self.dry_run:
+                    self.logger.audit(f"[DRY RUN] Would rename sidecar: {json_path.name}")
+                else:
+                    os.rename(json_path_str, json_bak_path)
+                    self.logger.audit(f"Renamed sidecar: {json_path_str} -> {json_bak_path}")
+                sidecars_disabled += 1
+                json_count += 1
+            except Exception as e:
+                self.logger.error(f"Failed to disable sidecar {json_path_str}: {e}")
+                error_count += 1
+        
+        # Log summary
+        self.logger.audit(f"Sidecar disabling summary:")
+        self.logger.audit(f"  .xmp files disabled: {xmp_count}")
+        self.logger.audit(f"  .supplemental-metadata.json files disabled: {json_count}")
+        if error_count > 0:
+            self.logger.audit(f"  Errors encountered: {error_count}")
+        
+        return sidecars_disabled

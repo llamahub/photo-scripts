@@ -35,7 +35,6 @@
 
 ## Austin & McKenna Video
 
-
 ```bash
 # organize
 . run organize /mnt/server_drive2/images-originals/Austin_and_McKenna /mnt/photo_drive/images-originals/Austin_and_McKenna
@@ -48,6 +47,29 @@
 
 
 ```
+
+
+## Google Drive
+
+```bash
+
+# unzip
+unzip '/mnt/server_drive2/images-originals/Takeout/Download 2026-01.zip' -d '/mnt/server_drive2/images-originals/Takeout/Download 2026-01'
+
+# organize
+. run organize /mnt/server_drive2/images-originals/Takeout/dksantee@gmail.com /mnt/photo_drive/images-originals/Takeout/dksantee@gmail.com
+
+# find_dups
+. run find_dups /mnt/photo_drive/images-originals/Takeout/dksantee@gmail.com /mnt/photo_drive/santee-images --output /mnt/photo_drive/dksantee_dups.csv
+
+# delete_dups
+. run delete_dups /mnt/photo_drive/dksantee_dups.csv --status-col match_type --status-val "Exact match" --dry-run
+
+# immich
+./run immich_extract --search --search-path /mnt/photo_drive/santee-images --updatedAfter 2025-10-26T16:00 --disable-sidecars --dry-run
+
+```
+
 
 ## TBD ##
 [ ] video vs pics

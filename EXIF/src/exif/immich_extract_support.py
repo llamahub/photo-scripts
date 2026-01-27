@@ -45,6 +45,7 @@ class ExifToolManager:
         date_exif=None,
         skip_if_unchanged=False,
         logger=None,
+        date_exif_offset=None,
     ):
         from .image_analyzer import ImageAnalyzer
 
@@ -116,6 +117,10 @@ class ExifToolManager:
                     cmd += [f"-Keywords={tag}"]
         if date_exif:
             cmd += [f"-DateTimeOriginal={date_exif}"]
+            # Write OffsetTimeOriginal to persist timezone info (EXIF 2.3 standard)
+            # This ensures the date is interpreted with timezone awareness next time
+            if date_exif_offset:
+                cmd += [f"-OffsetTimeOriginal={date_exif_offset}"]
         cmd.append(file_path)
         try:
             subprocess.run(cmd, capture_output=True, check=True)

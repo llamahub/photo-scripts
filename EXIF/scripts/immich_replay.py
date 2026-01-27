@@ -69,14 +69,14 @@ def find_latest_log():
 
 def parse_exif_log_line(line):
     # Accept lines where the EXIF audit payload is embedded in a longer log line.
-    # Expected payload format (CSV-like): [EXIF],{path},{status},{current desc},{target desc},{current tags},{target tags},{current date},{target date},{error}
+    # Expected payload format (CSV-like): [EXIF],{path},{status},{current desc},{target desc},{current tags},{target tags},{current date},{target date},{current_offset},{target_offset},{error}
     # The file log lines usually look like: "2025-10-25 18:02:09 - AUDIT - [EXIF],/path,..."
     idx = line.find('[EXIF],')
     if idx == -1:
         return None
     payload = line[idx:]
-    parts = payload.strip().split(',', 9)
-    if len(parts) < 10:
+    parts = payload.strip().split(',', 11)  # Changed from 9 to 11 to accommodate offset fields
+    if len(parts) < 12:  # Changed from 10 to 12
         return None
     return {
         'file_path': parts[1],
@@ -87,7 +87,9 @@ def parse_exif_log_line(line):
         'target_tags': parts[6],
         'current_date': parts[7],
         'target_date': parts[8],
-        'error': parts[9],
+        'current_offset': parts[9],
+        'target_offset': parts[10],
+        'error': parts[11],
     }
 
 def main():
@@ -133,7 +135,7 @@ def main():
     else:
         with open(output_csv, 'w', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=[
-                'file_path', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'error'
+                'file_path', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'error'
             ])
             writer.writeheader()
             for row in exif_rows:
