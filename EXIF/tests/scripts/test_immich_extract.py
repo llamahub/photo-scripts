@@ -513,5 +513,274 @@ class TestDisableSidecars(unittest.TestCase):
             self.assertTrue(os.path.exists(f"{json_file}.bak"))
 
 
+class TestTimestampOffsetEquivalence(unittest.TestCase):
+    """Test that offset_equivalent logic works correctly in different scenarios."""
+    
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    @patch("builtins.open")
+    @patch("json.dump")
+    @patch("json.load")
+    def test_offset_equivalent_skip_all(
+        self,
+        mock_json_load,
+        mock_json_dump,
+        mock_open,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test scenario 1: Timestamps are offset_equivalent AND tags/description match - should skip entirely."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.list_albums.return_value = []
+        mock_api.get_album_assets.return_value = [
+            {"id": "asset1", "originalFileName": "img1.jpg"}
+        ]
+        mock_api.get_asset_details.return_value = {
+            "id": "asset1",
+            "originalFileName": "img1.jpg",
+            "tags": ["tag1"],
+            "description": "desc",
+        }
+        mock_api.session = MagicMock()
+        mock_find_image_file.return_value = __file__
+        mock_ExifToolManager.check_exiftool.return_value = True
+        
+        # Current EXIF: 12:00:00 in +05:00 timezone (which is 07:00:00 UTC)
+        # Target: 07:00:00 in +00:00 timezone (which is also 07:00:00 UTC)
+        # Same tags and description - should skip entirely
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "desc",
+            "Subject": ["tag1"],
+            "DateTimeOriginal": "2020:01:01 12:00:00",
+            "OffsetTimeOriginal": "+05:00",
+        }
+        mock_json_load.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                # Create a fake image file
+                test_image = Path(tmpdir) / "img1.jpg"
+                test_image.write_text("fake image")
+                mock_find_image_file.return_value = str(test_image)
+                
+                logger = logging.getLogger("test_offset_equivalent")
+                logger.setLevel(logging.DEBUG)
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    album="albumid",
+                    logger=logger,
+                )
+                extractor.search = False
+                
+                # Mock the API to return proper date for immich
+                mock_api.get_asset_details.return_value = {
+                    "id": "asset1",
+                    "originalFileName": "img1.jpg",
+                    "tags": ["tag1"],
+                    "description": "desc",
+                    "exifInfo": {
+                        "dateTimeOriginal": "2020-01-01T07:00:00.000Z"  # UTC time
+                    }
+                }
+                
+                result = extractor.run()
+                
+                # Should NOT have called update_exif at all
+                mock_ExifToolManager.update_exif.assert_not_called()
+                
+                # Check that status was offset_equivalent
+                self.assertIn("offset_equivalent", result.get("audit_status_counts", {}))
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    @patch("builtins.open")
+    @patch("json.dump")
+    @patch("json.load")
+    def test_offset_equivalent_update_tags_only(
+        self,
+        mock_json_load,
+        mock_json_dump,
+        mock_open,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test scenario 2: Timestamps are offset_equivalent BUT tags differ - should update tags only (date=None)."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.list_albums.return_value = []
+        mock_api.get_album_assets.return_value = [
+            {"id": "asset1", "originalFileName": "img1.jpg"}
+        ]
+        mock_api.get_asset_details.return_value = {
+            "id": "asset1",
+            "originalFileName": "img1.jpg",
+            "tags": ["tag2", "tag3"],  # Different tags
+            "description": "desc",
+        }
+        mock_api.session = MagicMock()
+        mock_find_image_file.return_value = __file__
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "updated"
+        
+        # Same timestamp in different timezone, but different tags
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "desc",
+            "Subject": ["tag1"],  # Different from target
+            "DateTimeOriginal": "2020:01:01 12:00:00",
+            "OffsetTimeOriginal": "+05:00",
+        }
+        mock_json_load.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                # Create a fake image file
+                test_image = Path(tmpdir) / "img1.jpg"
+                test_image.write_text("fake image")
+                mock_find_image_file.return_value = str(test_image)
+                
+                logger = logging.getLogger("test_offset_equivalent_tags")
+                logger.setLevel(logging.DEBUG)
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    album="albumid",
+                    logger=logger,
+                )
+                extractor.search = False
+                
+                # Mock the API to return proper date for immich
+                mock_api.get_asset_details.return_value = {
+                    "id": "asset1",
+                    "originalFileName": "img1.jpg",
+                    "tags": ["tag2", "tag3"],  # Different tags
+                    "description": "desc",
+                    "exifInfo": {
+                        "dateTimeOriginal": "2020-01-01T07:00:00.000Z"  # UTC time
+                    }
+                }
+                
+                result = extractor.run()
+                
+                # Should have called update_exif with date=None (don't update timestamp)
+                mock_ExifToolManager.update_exif.assert_called()
+                call_args = mock_ExifToolManager.update_exif.call_args
+                # Check if date_exif is None (passed as keyword argument)
+                self.assertIsNone(call_args.kwargs.get("date_exif"))  # date should be None
+                self.assertIsNone(call_args.kwargs.get("date_exif_offset"))  # offset should be None
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    @patch("builtins.open")
+    @patch("json.dump")
+    @patch("json.load")
+    def test_timestamps_differ_update_all(
+        self,
+        mock_json_load,
+        mock_json_dump,
+        mock_open,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test scenario 3: Timestamps differ - should update everything including timestamp."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.list_albums.return_value = []
+        mock_api.get_album_assets.return_value = [
+            {"id": "asset1", "originalFileName": "img1.jpg"}
+        ]
+        mock_api.get_asset_details.return_value = {
+            "id": "asset1",
+            "originalFileName": "img1.jpg",
+            "tags": ["tag1"],
+            "description": "desc",
+        }
+        mock_api.session = MagicMock()
+        mock_find_image_file.return_value = __file__
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "updated"  # Force updated status
+        
+        # Different timestamp (not offset_equivalent)
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "old desc",  # Make description different
+            "Subject": ["tag1"],
+            "DateTimeOriginal": "2020:01:01 15:00:00",  # Different time
+            "OffsetTimeOriginal": "+05:00",
+        }
+        mock_json_load.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                # Create a fake image file
+                test_image = Path(tmpdir) / "img1.jpg"
+                test_image.write_text("fake image")
+                mock_find_image_file.return_value = str(test_image)
+                
+                logger = logging.getLogger("test_timestamps_differ")
+                logger.setLevel(logging.DEBUG)
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    album="albumid",
+                    logger=logger,
+                )
+                extractor.search = False
+                
+                # Mock the API to return different UTC time
+                mock_api.get_asset_details.return_value = {
+                    "id": "asset1",
+                    "originalFileName": "img1.jpg",
+                    "tags": ["tag1"],
+                    "description": "desc",
+                    "exifInfo": {
+                        "dateTimeOriginal": "2020-01-01T07:00:00.000Z"  # Different UTC time
+                    }
+                }
+                
+                result = extractor.run()
+                
+                # Should have called update_exif with actual date (update timestamp)
+                mock_ExifToolManager.update_exif.assert_called()
+                call_args = mock_ExifToolManager.update_exif.call_args
+                # date_exif is the 5th positional argument (index 4)
+                date_exif_val = call_args.args[4] if len(call_args.args) > 4 else None
+                self.assertIsNotNone(date_exif_val)  # date should NOT be None
+                self.assertEqual(call_args.kwargs.get("date_exif_offset"), "+00:00")  # offset should be UTC
+            finally:
+                os.chdir(old_cwd)
+
+
 if __name__ == "__main__":
     unittest.main()

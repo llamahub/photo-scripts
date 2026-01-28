@@ -3,6 +3,7 @@ import json
 import logging
 from pathlib import Path
 from typing import List, Optional
+from datetime import datetime, timezone, timedelta
 from .immich_config import ImmichConfig
 from .immich_extract_support import ImmichAPI, ExifToolManager, find_image_file
 
@@ -18,6 +19,52 @@ def exif_date_to_iso(exif_date: str) -> str:
     if len(exif_date) >= 10:
         return exif_date[:4] + "-" + exif_date[5:7] + "-" + exif_date[8:10] + exif_date[10:]
     return exif_date
+
+
+def timestamps_equivalent(date1: str, offset1: str, date2: str, offset2: str) -> bool:
+    """
+    Compare two timestamps considering their timezone offsets.
+    Returns True if both represent the same moment in time (UTC equivalent).
+    
+    Args:
+        date1: EXIF date string (YYYY:MM:DD HH:MM:SS)
+        offset1: Timezone offset (e.g., '+05:00', '-08:00', '+00:00')
+        date2: EXIF date string (YYYY:MM:DD HH:MM:SS)
+        offset2: Timezone offset
+    
+    Returns:
+        True if timestamps are equivalent in UTC, False otherwise
+    """
+    if not date1 or not date2:
+        return False
+    
+    try:
+        # Parse EXIF dates
+        dt1 = datetime.strptime(date1, "%Y:%m:%d %H:%M:%S")
+        dt2 = datetime.strptime(date2, "%Y:%m:%d %H:%M:%S")
+        
+        # Parse offsets and convert to timedeltas
+        def parse_offset(offset_str: str) -> timedelta:
+            if not offset_str:
+                return timedelta(0)
+            # Format: +HH:MM or -HH:MM
+            sign = 1 if offset_str[0] == '+' else -1
+            hours = int(offset_str[1:3])
+            minutes = int(offset_str[4:6])
+            return timedelta(hours=sign * hours, minutes=sign * minutes)
+        
+        offset1_td = parse_offset(offset1)
+        offset2_td = parse_offset(offset2)
+        
+        # Convert both to UTC by subtracting their offsets
+        utc1 = dt1 - offset1_td
+        utc2 = dt2 - offset2_td
+        
+        # Compare UTC times
+        return utc1 == utc2
+    except (ValueError, IndexError) as e:
+        # If parsing fails, can't determine equivalence
+        return False
 
 
 class ImmichExtractor:
@@ -442,19 +489,45 @@ class ImmichExtractor:
                 target_offset = "+00:00" if date_exif else ""
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
                 log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                error_count += 1
+                error_files.append(file_name)
+                continue
             target_desc = description
             target_tags = ";".join(sorted([str(t) for t in tags]))
             target_date = date_exif
             target_offset = "+00:00" if date_exif else ""
+            
+            # Check if timestamps are equivalent when considering offsets
+            timestamps_are_equivalent = (current_date and target_date and 
+                                        timestamps_equivalent(current_date, current_offset, target_date, target_offset))
+            
+            # If timestamps are equivalent and everything matches, skip entirely
+            if (timestamps_are_equivalent and
+                current_desc == target_desc and 
+                current_tags == target_tags):
+                status = "offset_equivalent"
+                error_msg = "timestamps equivalent (same UTC time) and tags/description match"
+                self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                skipped_count += 1
+                continue
+            
+            # If timestamps are equivalent but tags/description differ, only update metadata (not timestamp)
+            # Use None for date to preserve existing timestamp
+            update_date = None if timestamps_are_equivalent else date_exif
+            update_offset = None if timestamps_are_equivalent else ("+00:00" if date_exif else None)
+            
             result = ExifToolManager.update_exif(
                 image_path,
                 description,
                 tags,
                 self.dry_run,
-                date_exif,
+                update_date,
                 skip_if_unchanged=True,
                 logger=self.logger,
-                date_exif_offset="+00:00" if date_exif else None,
+                date_exif_offset=update_offset,
             )
             if (
                 result == "skipped"
@@ -466,15 +539,16 @@ class ImmichExtractor:
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
                 log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
+                # Use the same logic as above: don't update timestamp if offset_equivalent
                 result = ExifToolManager.update_exif(
                     image_path,
                     description,
                     tags,
                     self.dry_run,
-                    date_exif,
+                    update_date,
                     skip_if_unchanged=False,
                     logger=self.logger,
-                    date_exif_offset="+00:00" if date_exif else None,
+                    date_exif_offset=update_offset,
                 )
             elif result == "skipped" and fuzzy_this_file["fuzzy"]:
                 status = "fuzzy_skipped"
