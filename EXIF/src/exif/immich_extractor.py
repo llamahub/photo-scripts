@@ -21,10 +21,72 @@ def exif_date_to_iso(exif_date: str) -> str:
     return exif_date
 
 
+def calculate_timezone_from_offset(date_str: str, offset_str: str) -> str:
+    """
+    Calculate the most likely timezone label from a date and offset.
+    Uses reverse lookup to find timezone that matches the offset at that date.
+    
+    Args:
+        date_str: EXIF date string (YYYY:MM:DD HH:MM:SS)
+        offset_str: Timezone offset (e.g., '+05:00', '-08:00', '+00:00')
+    
+    Returns:
+        Timezone label (e.g., 'America/New_York', 'UTC') or empty string if cannot determine
+    """
+    if not date_str or not offset_str:
+        return ""
+    
+    try:
+        from zoneinfo import ZoneInfo, available_timezones
+        
+        # Parse the date (handle both EXIF format YYYY:MM:DD and ISO format YYYY-MM-DD)
+        date_normalized = date_str.replace("-", ":") if "-" in date_str[:10] else date_str
+        dt = datetime.strptime(date_normalized, "%Y:%m:%d %H:%M:%S")
+        
+        # Parse the offset
+        sign = 1 if offset_str[0] == '+' else -1
+        hours = int(offset_str[1:3])
+        minutes = int(offset_str[4:6])
+        target_offset_seconds = sign * (hours * 3600 + minutes * 60)
+        
+        # Common timezones to check first (optimization)
+        common_timezones = [
+            'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+            'UTC', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo'
+        ]
+        
+        # Check common timezones first
+        for tz_name in common_timezones:
+            try:
+                tz = ZoneInfo(tz_name)
+                dt_with_tz = dt.replace(tzinfo=tz)
+                tz_offset_seconds = int(dt_with_tz.utcoffset().total_seconds())
+                if tz_offset_seconds == target_offset_seconds:
+                    return tz_name
+            except Exception:
+                continue
+        
+        # If not found in common, search all (slower)
+        for tz_name in available_timezones():
+            try:
+                tz = ZoneInfo(tz_name)
+                dt_with_tz = dt.replace(tzinfo=tz)
+                tz_offset_seconds = int(dt_with_tz.utcoffset().total_seconds())
+                if tz_offset_seconds == target_offset_seconds:
+                    return tz_name
+            except Exception:
+                continue
+        
+        return ""
+    except Exception:
+        return ""
+
+
 def timestamps_equivalent(date1: str, offset1: str, date2: str, offset2: str) -> bool:
     """
     Compare two timestamps considering their timezone offsets.
     Returns True if both represent the same moment in time (UTC equivalent).
+    Ignores seconds to allow for Excel editing that may truncate precision.
     
     Args:
         date1: EXIF date string (YYYY:MM:DD HH:MM:SS)
@@ -33,7 +95,7 @@ def timestamps_equivalent(date1: str, offset1: str, date2: str, offset2: str) ->
         offset2: Timezone offset
     
     Returns:
-        True if timestamps are equivalent in UTC, False otherwise
+        True if timestamps are equivalent in UTC (ignoring seconds), False otherwise
     """
     if not date1 or not date2:
         return False
@@ -60,8 +122,11 @@ def timestamps_equivalent(date1: str, offset1: str, date2: str, offset2: str) ->
         utc1 = dt1 - offset1_td
         utc2 = dt2 - offset2_td
         
-        # Compare UTC times
-        return utc1 == utc2
+        # Compare UTC times, ignoring seconds (truncate to minute precision)
+        utc1_truncated = utc1.replace(second=0, microsecond=0)
+        utc2_truncated = utc2.replace(second=0, microsecond=0)
+        
+        return utc1_truncated == utc2_truncated
     except (ValueError, IndexError) as e:
         # If parsing fails, can't determine equivalence
         return False
@@ -119,12 +184,15 @@ class ImmichExtractor:
         csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow([
-            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'error_msg'
+            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'target_timezone', 'fix_timezone', 'error_msg'
         ])
 
         def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, error_msg):
+            # Calculate target_timezone from target_date and target_offset
+            target_timezone = calculate_timezone_from_offset(target_date, target_offset) if target_date and target_offset else ""
+            fix_timezone = ""  # User will fill this in manually for files they want to fix
             csv_writer.writerow([
-                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, error_msg
+                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, target_timezone, fix_timezone, error_msg
             ])
             csv_file.flush()
         self.logger.debug("Entered ImmichExtractor.run()")
