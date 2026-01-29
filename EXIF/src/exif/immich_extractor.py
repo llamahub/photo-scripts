@@ -184,15 +184,15 @@ class ImmichExtractor:
         csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow([
-            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'target_timezone', 'fix_timezone', 'error_msg'
+            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'target_timezone', 'fix_timezone', 'immich_mod_date', 'error_msg'
         ])
 
-        def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, error_msg):
+        def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, immich_mod_date, error_msg):
             # Calculate target_timezone from target_date and target_offset
             target_timezone = calculate_timezone_from_offset(target_date, target_offset) if target_date and target_offset else ""
             fix_timezone = ""  # User will fill this in manually for files they want to fix
             csv_writer.writerow([
-                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, target_timezone, fix_timezone, error_msg
+                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, target_timezone, fix_timezone, immich_mod_date, error_msg
             ])
             csv_file.flush()
         self.logger.debug("Entered ImmichExtractor.run()")
@@ -386,13 +386,14 @@ class ImmichExtractor:
             if not file_name:
                 status = "no_filename"
                 log_path = ''
-                current_desc = target_desc = current_tags = target_tags = current_date = target_date = current_offset = target_offset = error_msg = ''
+                current_desc = target_desc = current_tags = target_tags = current_date = target_date = current_offset = target_offset = immich_mod_date = error_msg = ''
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
             details = self.api.get_asset_details(asset_id) or asset
+            immich_mod_date = details.get("updatedAt", "")
             tags_raw = details.get("tags", [])
             description = details.get("description", "").strip()
             if not description:
@@ -410,12 +411,17 @@ class ImmichExtractor:
             album_names = album_cache.get(asset_id, [])
             tags = sorted(set(tags + album_names))
             date_original = details.get("dateTimeOriginal", "")
+            timezone_from_api = None
             if not date_original:
                 exif_info = details.get("exifInfo", {})
                 date_original = exif_info.get("dateTimeOriginal", "")
+                timezone_from_api = exif_info.get("timeZone")
+            else:
+                exif_info = details.get("exifInfo", {})
+                timezone_from_api = exif_info.get("timeZone") if exif_info else None
             
             date_exif = ""
-            date_exif_offset = "+00:00"  # Always write UTC with +00:00 offset
+            date_exif_offset = "+00:00"  # Default to UTC
             if date_original:
                 import re
                 from datetime import datetime, timezone
@@ -426,12 +432,58 @@ class ImmichExtractor:
                     dt = None
                     # Check if date has timezone info in the raw string
                     if "Z" in date_original or "+" in date_original or "-" in date_original[10:]:
-                        # Has timezone info - parse and convert to UTC
+                        # Has timezone info - parse it
                         dt = datetime.fromisoformat(
                             date_original.replace("Z", "+00:00")
                         )
-                        dt_utc = dt.astimezone(timezone.utc)
-                        date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
+                        
+                        # Determine which timezone to use for EXIF output
+                        target_tz_to_use = None
+                        
+                        # Priority 1: Use timezone from API if available (e.g., "UTC-5")
+                        if timezone_from_api:
+                            try:
+                                # Parse timezone like "UTC-5" or "UTC+5:30"
+                                import re as regex
+                                tz_match = regex.match(r'UTC([+-])(\d+)(?::(\d+))?', timezone_from_api)
+                                if tz_match:
+                                    sign = -1 if tz_match.group(1) == '-' else 1
+                                    hours = int(tz_match.group(2))
+                                    minutes = int(tz_match.group(3)) if tz_match.group(3) else 0
+                                    offset_seconds = sign * (hours * 3600 + minutes * 60)
+                                    offset_hours = int(offset_seconds // 3600)
+                                    offset_minutes = int((abs(offset_seconds) % 3600) // 60)
+                                    date_exif_offset = f"{'+' if offset_seconds >= 0 else '-'}{abs(offset_hours):02d}:{offset_minutes:02d}"
+                                    # Convert to that offset
+                                    from datetime import timedelta
+                                    dt_local = dt + timedelta(seconds=offset_seconds)
+                                    date_exif = dt_local.strftime("%Y:%m:%d %H:%M:%S")
+                                    target_tz_to_use = True  # Mark that we used API timezone
+                            except Exception as e:
+                                self.logger.debug(f"Could not parse API timezone '{timezone_from_api}': {e}")
+                        
+                        # Priority 2: Use user-specified timezone if API didn't provide one
+                        if not target_tz_to_use and self.exif_timezone:
+                            from zoneinfo import ZoneInfo
+                            try:
+                                target_tz = ZoneInfo(self.exif_timezone)
+                                dt_local = dt.astimezone(target_tz)
+                                date_exif = dt_local.strftime("%Y:%m:%d %H:%M:%S")
+                                # Calculate the offset for this specific datetime
+                                offset_seconds = dt_local.utcoffset().total_seconds()
+                                offset_hours = int(offset_seconds // 3600)
+                                offset_minutes = int((abs(offset_seconds) % 3600) // 60)
+                                date_exif_offset = f"{'+' if offset_seconds >= 0 else '-'}{abs(offset_hours):02d}:{offset_minutes:02d}"
+                            except Exception as e:
+                                self.logger.warning(f"Could not convert to timezone '{self.exif_timezone}': {e}. Using UTC.")
+                                dt_utc = dt.astimezone(timezone.utc)
+                                date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
+                                date_exif_offset = "+00:00"
+                        elif not target_tz_to_use:
+                            # No timezone specified - use UTC
+                            dt_utc = dt.astimezone(timezone.utc)
+                            date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
+                            date_exif_offset = "+00:00"
                     else:
                         # No timezone info - interpret as specified timezone (or server timezone if not specified)
                         if self.exif_timezone:
@@ -440,16 +492,22 @@ class ImmichExtractor:
                                 tz = ZoneInfo(self.exif_timezone)
                                 dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
                                 dt = dt.replace(tzinfo=tz)
-                                dt_utc = dt.astimezone(timezone.utc)
-                                date_exif = dt_utc.strftime("%Y:%m:%d %H:%M:%S")
+                                date_exif = dt.strftime("%Y:%m:%d %H:%M:%S")
+                                # Calculate the offset for this specific datetime
+                                offset_seconds = dt.utcoffset().total_seconds()
+                                offset_hours = int(offset_seconds // 3600)
+                                offset_minutes = int((abs(offset_seconds) % 3600) // 60)
+                                date_exif_offset = f"{'+' if offset_seconds >= 0 else '-'}{abs(offset_hours):02d}:{offset_minutes:02d}"
                             except Exception as e:
                                 self.logger.warning(f"Could not parse timezone '{self.exif_timezone}': {e}. Using UTC as fallback.")
                                 dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
                                 dt = dt.replace(tzinfo=timezone.utc)
+                                date_exif_offset = "+00:00"
                         else:
                             # No timezone specified - assume UTC (legacy behavior)
                             dt = datetime.strptime(date_exif, "%Y:%m:%d %H:%M:%S")
                             dt = dt.replace(tzinfo=timezone.utc)
+                            date_exif_offset = "+00:00"
                 except Exception:
                     date_exif = re.sub(
                         r"(\d{2}:\d{2}:\d{2})([.\d]*)?(Z|[+-]\d+:?\d+)?$",
@@ -494,7 +552,7 @@ class ImmichExtractor:
                 log_path = file_name
                 current_desc = target_desc = current_tags = target_tags = current_date = target_date = current_offset = target_offset = error_msg = ''
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -554,9 +612,9 @@ class ImmichExtractor:
                 target_desc = description
                 target_tags = ";".join(sorted([str(t) for t in tags]))
                 target_date = date_exif
-                target_offset = "+00:00" if date_exif else ""
+                target_offset = date_exif_offset if date_exif else ""
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 error_count += 1
                 error_files.append(file_name)
@@ -564,7 +622,7 @@ class ImmichExtractor:
             target_desc = description
             target_tags = ";".join(sorted([str(t) for t in tags]))
             target_date = date_exif
-            target_offset = "+00:00" if date_exif else ""
+            target_offset = date_exif_offset if date_exif else ""
             
             # Check if timestamps are equivalent when considering offsets
             timestamps_are_equivalent = (current_date and target_date and 
@@ -577,7 +635,7 @@ class ImmichExtractor:
                 status = "offset_equivalent"
                 error_msg = "timestamps equivalent (same UTC time) and tags/description match"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -585,7 +643,7 @@ class ImmichExtractor:
             # If timestamps are equivalent but tags/description differ, only update metadata (not timestamp)
             # Use None for date to preserve existing timestamp
             update_date = None if timestamps_are_equivalent else date_exif
-            update_offset = None if timestamps_are_equivalent else ("+00:00" if date_exif else None)
+            update_offset = None if timestamps_are_equivalent else (date_exif_offset if date_exif else None)
             
             result = ExifToolManager.update_exif(
                 image_path,
@@ -605,7 +663,7 @@ class ImmichExtractor:
                 status = "fuzzy_forced"
                 error_msg = "fuzzy match forced update"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 # Use the same logic as above: don't update timestamp if offset_equivalent
                 result = ExifToolManager.update_exif(
@@ -622,25 +680,25 @@ class ImmichExtractor:
                 status = "fuzzy_skipped"
                 error_msg = "fuzzy match: EXIF datetimes within 24h and minutes/seconds match"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "skipped":
                 status = "skipped"
                 error_msg = "EXIF already matches"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "updated":
                 status = "updated"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 updated_count += 1
             else:
                 status = "error"
                 error_msg = "Update failed"
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 error_count += 1
                 error_files.append(file_name)
