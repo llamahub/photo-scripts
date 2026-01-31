@@ -184,17 +184,36 @@ class ImmichExtractor:
         csv_file = open(csv_path, 'w', newline='', encoding='utf-8')
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow([
-            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'target_timezone', 'fix_timezone', 'immich_mod_date', 'error_msg'
+            'file', 'status', 'current_desc', 'target_desc', 'current_tags', 'target_tags', 'current_date', 'target_date', 'current_offset', 'target_offset', 'target_timezone', 'fix_timezone', 'sidecars', 'immich_mod_date', 'error_msg'
         ])
 
-        def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, immich_mod_date, error_msg):
+        def log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, sidecars, immich_mod_date, error_msg):
             # Calculate target_timezone from target_date and target_offset
             target_timezone = calculate_timezone_from_offset(target_date, target_offset) if target_date and target_offset else ""
             fix_timezone = ""  # User will fill this in manually for files they want to fix
             csv_writer.writerow([
-                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, target_timezone, fix_timezone, immich_mod_date, error_msg
+                log_path, status, current_desc, target_desc, current_tags, target_tags, current_date, target_date, current_offset, target_offset, target_timezone, fix_timezone, sidecars, immich_mod_date, error_msg
             ])
             csv_file.flush()
+        
+        def check_sidecars(image_path):
+            """Check for sidecar files and return comma-separated list of found sidecars."""
+            from pathlib import Path
+            sidecars_found = []
+            image_path_obj = Path(image_path)
+            
+            # Check for .xmp sidecar
+            xmp_path = image_path_obj.with_suffix(image_path_obj.suffix + '.xmp')
+            if xmp_path.exists():
+                sidecars_found.append(xmp_path.name)
+            
+            # Check for .supplemental-metadata.json sidecar
+            json_path = image_path_obj.with_suffix(image_path_obj.suffix + '.supplemental-metadata.json')
+            if json_path.exists():
+                sidecars_found.append(json_path.name)
+            
+            return ';'.join(sidecars_found) if sidecars_found else ''
+        
         self.logger.debug("Entered ImmichExtractor.run()")
         self.logger.debug(
             f"ImmichExtractor configuration: search_path={self.search_path!r}, album={self.album!r}, search={self.search}, updated_after={self.updated_after!r}"
@@ -388,7 +407,7 @@ class ImmichExtractor:
                 log_path = ''
                 current_desc = target_desc = current_tags = target_tags = current_date = target_date = current_offset = target_offset = immich_mod_date = error_msg = ''
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, '', immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -552,12 +571,14 @@ class ImmichExtractor:
                 log_path = file_name
                 current_desc = target_desc = current_tags = target_tags = current_date = target_date = current_offset = target_offset = error_msg = ''
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, '', immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
             abs_image_path = os.path.abspath(image_path)
             log_path = abs_image_path
+            # Check for sidecar files
+            sidecars = check_sidecars(abs_image_path)
             # Only process files within the search paths
             in_search_path = False
             for search_path in [self.search_path]:
@@ -614,7 +635,7 @@ class ImmichExtractor:
                 target_date = date_exif
                 target_offset = date_exif_offset if date_exif else ""
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, sidecars, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 error_count += 1
                 error_files.append(file_name)
@@ -635,7 +656,7 @@ class ImmichExtractor:
                 status = "offset_equivalent"
                 error_msg = "timestamps equivalent (same UTC time) and tags/description match"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, sidecars, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 skipped_count += 1
                 continue
@@ -663,7 +684,7 @@ class ImmichExtractor:
                 status = "fuzzy_forced"
                 error_msg = "fuzzy match forced update"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, sidecars, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 # Use the same logic as above: don't update timestamp if offset_equivalent
                 result = ExifToolManager.update_exif(
@@ -680,25 +701,25 @@ class ImmichExtractor:
                 status = "fuzzy_skipped"
                 error_msg = "fuzzy match: EXIF datetimes within 24h and minutes/seconds match"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, sidecars, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "skipped":
                 status = "skipped"
                 error_msg = "EXIF already matches"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, sidecars, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
             elif result == "updated":
                 status = "updated"
                 self.logger.audit(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, sidecars, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 updated_count += 1
             else:
                 status = "error"
                 error_msg = "Update failed"
                 self.logger.error(f"[EXIF],{log_path},{status},{current_desc},{target_desc},{current_tags},{target_tags},{exif_date_to_iso(current_date)},{exif_date_to_iso(target_date)},{current_offset},{target_offset},{error_msg}")
-                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, immich_mod_date, error_msg)
+                log_exif_csv(log_path, status, current_desc, target_desc, current_tags, target_tags, exif_date_to_iso(current_date), exif_date_to_iso(target_date), current_offset, target_offset, sidecars, immich_mod_date, error_msg)
                 audit_status_counts[status] = audit_status_counts.get(status, 0) + 1
                 error_count += 1
                 error_files.append(file_name)
@@ -734,8 +755,8 @@ class ImmichExtractor:
     def _disable_sidecar_files(self, processed_files):
         """
         Rename sidecar files (.xmp and .supplemental-metadata.json) to .bak.
-        Scans the search_path recursively for ALL sidecars and disables them,
-        regardless of whether they correspond to processed files.
+        Only disables sidecars for files that were actually processed.
+        If processed_files is empty, disables ALL sidecars in search path.
         """
         from pathlib import Path
         
@@ -744,41 +765,81 @@ class ImmichExtractor:
         json_count = 0
         error_count = 0
         
-        search_path_obj = Path(self.search_path)
-        
-        # Scan for and disable ALL .xmp files
-        self.logger.debug(f"Scanning for .xmp sidecars in {self.search_path}")
-        for xmp_path in search_path_obj.rglob("*.xmp"):
-            xmp_path_str = str(xmp_path)
-            xmp_bak_path = f"{xmp_path_str}.bak"
-            try:
-                if self.dry_run:
-                    self.logger.audit(f"[DRY RUN] Would rename sidecar: {xmp_path.name}")
-                else:
-                    os.rename(xmp_path_str, xmp_bak_path)
-                    self.logger.audit(f"Renamed sidecar: {xmp_path_str} -> {xmp_bak_path}")
-                sidecars_disabled += 1
-                xmp_count += 1
-            except Exception as e:
-                self.logger.error(f"Failed to disable sidecar {xmp_path_str}: {e}")
-                error_count += 1
-        
-        # Scan for and disable ALL .supplemental-metadata.json files
-        self.logger.debug(f"Scanning for .supplemental-metadata.json sidecars in {self.search_path}")
-        for json_path in search_path_obj.rglob("*.supplemental-metadata.json"):
-            json_path_str = str(json_path)
-            json_bak_path = f"{json_path_str}.bak"
-            try:
-                if self.dry_run:
-                    self.logger.audit(f"[DRY RUN] Would rename sidecar: {json_path.name}")
-                else:
-                    os.rename(json_path_str, json_bak_path)
-                    self.logger.audit(f"Renamed sidecar: {json_path_str} -> {json_bak_path}")
-                sidecars_disabled += 1
-                json_count += 1
-            except Exception as e:
-                self.logger.error(f"Failed to disable sidecar {json_path_str}: {e}")
-                error_count += 1
+        # If no processed files specified, fall back to scanning entire directory tree
+        if not processed_files:
+            self.logger.debug("No processed files specified, scanning entire search path")
+            search_path = Path(self.search_path)
+            
+            # Find all .xmp files
+            for xmp_path in search_path.rglob("*.xmp"):
+                xmp_path_str = str(xmp_path)
+                xmp_bak_path = f"{xmp_path_str}.bak"
+                try:
+                    if self.dry_run:
+                        self.logger.audit(f"[DRY RUN] Would rename sidecar: {xmp_path.name}")
+                    else:
+                        os.rename(xmp_path_str, xmp_bak_path)
+                        self.logger.audit(f"Renamed sidecar: {xmp_path_str} -> {xmp_bak_path}")
+                    sidecars_disabled += 1
+                    xmp_count += 1
+                except Exception as e:
+                    self.logger.error(f"Failed to disable sidecar {xmp_path_str}: {e}")
+                    error_count += 1
+            
+            # Find all .supplemental-metadata.json files
+            for json_path in search_path.rglob("*.supplemental-metadata.json"):
+                json_path_str = str(json_path)
+                json_bak_path = f"{json_path_str}.bak"
+                try:
+                    if self.dry_run:
+                        self.logger.audit(f"[DRY RUN] Would rename sidecar: {json_path.name}")
+                    else:
+                        os.rename(json_path_str, json_bak_path)
+                        self.logger.audit(f"Renamed sidecar: {json_path_str} -> {json_bak_path}")
+                    sidecars_disabled += 1
+                    json_count += 1
+                except Exception as e:
+                    self.logger.error(f"Failed to disable sidecar {json_path_str}: {e}")
+                    error_count += 1
+        else:
+            # Check for sidecars only for processed files
+            self.logger.debug(f"Checking for sidecars for {len(processed_files)} processed files")
+            for image_path in processed_files:
+                image_path_obj = Path(image_path)
+                
+                # Check for .xmp sidecar
+                xmp_path = image_path_obj.with_suffix(image_path_obj.suffix + '.xmp')
+                if xmp_path.exists():
+                    xmp_path_str = str(xmp_path)
+                    xmp_bak_path = f"{xmp_path_str}.bak"
+                    try:
+                        if self.dry_run:
+                            self.logger.audit(f"[DRY RUN] Would rename sidecar: {xmp_path.name}")
+                        else:
+                            os.rename(xmp_path_str, xmp_bak_path)
+                            self.logger.audit(f"Renamed sidecar: {xmp_path_str} -> {xmp_bak_path}")
+                        sidecars_disabled += 1
+                        xmp_count += 1
+                    except Exception as e:
+                        self.logger.error(f"Failed to disable sidecar {xmp_path_str}: {e}")
+                        error_count += 1
+                
+                # Check for .supplemental-metadata.json sidecar
+                json_path = image_path_obj.with_suffix(image_path_obj.suffix + '.supplemental-metadata.json')
+                if json_path.exists():
+                    json_path_str = str(json_path)
+                    json_bak_path = f"{json_path_str}.bak"
+                    try:
+                        if self.dry_run:
+                            self.logger.audit(f"[DRY RUN] Would rename sidecar: {json_path.name}")
+                        else:
+                            os.rename(json_path_str, json_bak_path)
+                            self.logger.audit(f"Renamed sidecar: {json_path_str} -> {json_bak_path}")
+                        sidecars_disabled += 1
+                        json_count += 1
+                    except Exception as e:
+                        self.logger.error(f"Failed to disable sidecar {json_path_str}: {e}")
+                        error_count += 1
         
         # Log summary
         self.logger.audit(f"Sidecar disabling summary:")

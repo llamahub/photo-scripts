@@ -106,15 +106,23 @@ class ExifToolManager:
             return "updated"
 
         # Build exiftool command for update
-        cmd = ["exiftool", "-overwrite_original"]
+        # -F = ignore minor errors (e.g., bad MakerNotes offsets in old files)
+        cmd = ["exiftool", "-overwrite_original", "-F"]
         if description is not None:
             cmd += [f"-Description={description}"]
-        if tags:
-            for tag in target_tags:
+        if tags is not None:  # Check for None, not truthiness (empty list is valid)
+            if target_tags:
+                for tag in target_tags:
+                    if is_heic:
+                        cmd += [f"-Subject={tag}"]
+                    else:
+                        cmd += [f"-Keywords={tag}"]
+            else:
+                # Explicitly clear tags when empty list is provided
                 if is_heic:
-                    cmd += [f"-Subject={tag}"]
+                    cmd += ["-Subject="]
                 else:
-                    cmd += [f"-Keywords={tag}"]
+                    cmd += ["-Keywords="]
         if date_exif:
             cmd += [f"-DateTimeOriginal={date_exif}"]
             # Write OffsetTimeOriginal to persist timezone info (EXIF 2.3 standard)
@@ -123,10 +131,15 @@ class ExifToolManager:
                 cmd += [f"-OffsetTimeOriginal={date_exif_offset}"]
         cmd.append(file_path)
         try:
-            subprocess.run(cmd, capture_output=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, check=True, text=True)
             if logger:
                 logger.debug(f"Updated EXIF for {file_path}")
             return "updated"
+        except subprocess.CalledProcessError as e:
+            error_detail = e.stderr.strip() if e.stderr else str(e)
+            if logger:
+                logger.error(f"ExifTool error for {file_path}: {error_detail}")
+            return "error"
         except Exception as e:
             if logger:
                 logger.error(f"Error updating EXIF for {file_path}: {e}")
