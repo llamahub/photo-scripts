@@ -5,8 +5,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "COMMON" / "src"))
 import os
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open, call
 import logging
+import json
 # Import logging setup to enable audit() method on Logger
 import common.logging
 from common.temp import TempManager
@@ -778,6 +779,551 @@ class TestTimestampOffsetEquivalence(unittest.TestCase):
                 date_exif_val = call_args.args[4] if len(call_args.args) > 4 else None
                 self.assertIsNotNone(date_exif_val)  # date should NOT be None
                 self.assertEqual(call_args.kwargs.get("date_exif_offset"), "+00:00")  # offset should be UTC
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    def test_album_cache_created_on_first_run(
+        self,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test that album cache is created when it doesn't exist."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.get_album_assets.return_value = [
+            {"id": "asset1", "originalFileName": "img1.jpg"}
+        ]
+        mock_api.get_asset_details.return_value = {
+            "id": "asset1",
+            "originalFileName": "img1.jpg",
+            "tags": ["tag1"],
+            "description": "desc",
+            "exifInfo": {"dateTimeOriginal": "2020-01-01T12:00:00.000Z"},
+        }
+        mock_api.session = MagicMock()
+        mock_find_image_file.return_value = __file__
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "skipped"
+        
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "desc",
+            "Subject": ["tag1"],
+            "DateTimeOriginal": "2020:01:01 12:00:00",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                logger = logging.getLogger("test_album_cache")
+                logger.setLevel(logging.DEBUG)
+                
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    album="test_album_123",
+                    logger=logger,
+                )
+                extractor.search = False
+                extractor.run()
+                
+                # Verify cache file was created
+                cache_file = Path(tmpdir) / ".log" / "immich_cache_album_test_album_123.json"
+                self.assertTrue(cache_file.exists(), "Album cache file should be created")
+                
+                # Verify cache contains the asset
+                with open(cache_file) as f:
+                    cache_data = json.load(f)
+                self.assertIn("assets", cache_data)
+                self.assertEqual(len(cache_data["assets"]), 1)
+                self.assertEqual(cache_data["assets"][0]["id"], "asset1")
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    def test_album_cache_reused_on_second_run(
+        self,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test that album cache is reused when it exists."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.session = MagicMock()
+        mock_api.get_asset_details.return_value = {
+            "id": "cached_asset1",
+            "originalFileName": "cached_img.jpg",
+            "tags": ["cached_tag"],
+            "description": "cached desc",
+            "exifInfo": {
+                "dateTimeOriginal": "2021-01-01T10:00:00.000Z",
+                "timeZone": "UTC"
+            },
+        }
+        mock_find_image_file.return_value = __file__
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "skipped"
+        
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "cached desc",
+            "Subject": ["cached_tag"],
+            "DateTimeOriginal": "2021:01:01 10:00:00",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                logger = logging.getLogger("test_album_cache_reuse")
+                logger.setLevel(logging.DEBUG)
+                
+                # Create cache file before running extractor
+                cache_dir = Path(tmpdir) / ".log"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_file = cache_dir / "immich_cache_album_test_album_456.json"
+                cache_data = {
+                    "assets": [
+                        {
+                            "id": "cached_asset1",
+                            "originalFileName": "cached_img.jpg",
+                            "tags": ["cached_tag"],
+                            "description": "cached desc",
+                            "exifInfo": {
+                                "dateTimeOriginal": "2021-01-01T10:00:00.000Z",
+                                "timeZone": "UTC"
+                            },
+                        }
+                    ]
+                }
+                with open(cache_file, "w") as f:
+                    json.dump(cache_data, f)
+                
+                # Create the actual image file so find_image_file can find it
+                test_image = Path(tmpdir) / "cached_img.jpg"
+                test_image.write_text("fake image")
+                mock_find_image_file.return_value = str(test_image)
+                
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    album="test_album_456",
+                    logger=logger,
+                )
+                extractor.search = False
+                result = extractor.run()
+                
+                # Verify API was NOT called (cache was used)
+                mock_api.get_album_assets.assert_not_called()
+                
+                # Verify the cached asset was processed (analyzer was called)
+                self.assertTrue(mock_ImageAnalyzer.return_value.get_exif.called)
+                # Verify result shows assets were processed
+                self.assertEqual(result["total_assets"], 1)
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    def test_album_cache_refreshed_with_flag(
+        self,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test that album cache is refreshed when --refresh-cache flag is used."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.get_album_assets.return_value = [
+            {"id": "new_asset", "originalFileName": "new_img.jpg"}
+        ]
+        mock_api.get_asset_details.return_value = {
+            "id": "new_asset",
+            "originalFileName": "new_img.jpg",
+            "tags": ["new_tag"],
+            "description": "new desc",
+            "exifInfo": {"dateTimeOriginal": "2022-01-01T15:00:00.000Z"},
+        }
+        mock_api.session = MagicMock()
+        mock_find_image_file.return_value = __file__
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "skipped"
+        
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "new desc",
+            "Subject": ["new_tag"],
+            "DateTimeOriginal": "2022:01:01 15:00:00",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                logger = logging.getLogger("test_album_cache_refresh")
+                logger.setLevel(logging.DEBUG)
+                
+                # Create old cache file
+                cache_dir = Path(tmpdir) / ".log"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_file = cache_dir / "immich_cache_album_test_album_789.json"
+                old_cache_data = {
+                    "assets": [
+                        {
+                            "id": "old_asset",
+                            "originalFileName": "old_img.jpg",
+                        }
+                    ]
+                }
+                with open(cache_file, "w") as f:
+                    json.dump(old_cache_data, f)
+                
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    album="test_album_789",
+                    refresh_cache=True,  # Force refresh
+                    logger=logger,
+                )
+                extractor.search = False
+                extractor.run()
+                
+                # Verify API WAS called (cache was ignored)
+                mock_api.get_album_assets.assert_called_once()
+                
+                # Verify cache was updated with new data
+                with open(cache_file) as f:
+                    new_cache_data = json.load(f)
+                self.assertEqual(new_cache_data["assets"][0]["id"], "new_asset")
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    def test_search_cache_created_with_updated_after(
+        self,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test that search cache is created with updatedAfter query."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.session = MagicMock()
+        
+        # Mock get_asset_details to return full asset details
+        mock_api.get_asset_details.return_value = {
+            "id": "search_asset1",
+            "originalFileName": "search_img.jpg",
+            "tags": ["search_tag"],
+            "description": "search desc",
+            "exifInfo": {
+                "dateTimeOriginal": "2025-10-25T10:00:00.000Z",
+                "timeZone": "UTC"
+            },
+        }
+        
+        # Mock the search API response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "assets": {
+                "items": [
+                    {
+                        "id": "search_asset1",
+                        "originalFileName": "search_img.jpg",
+                        "tags": ["search_tag"],
+                        "description": "search desc",
+                        "exifInfo": {
+                            "dateTimeOriginal": "2025-10-25T10:00:00.000Z",
+                            "timeZone": "UTC"
+                        },
+                    }
+                ],
+                "nextPage": None,
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_api.session.post.return_value = mock_response
+        
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "skipped"
+        
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "search desc",
+            "Subject": ["search_tag"],
+            "DateTimeOriginal": "2025:10:25 10:00:00",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                logger = logging.getLogger("test_search_cache")
+                logger.setLevel(logging.DEBUG)
+                
+                # Create dummy image file that find_image_file will find
+                test_image = Path(tmpdir) / "search_img.jpg"
+                test_image.write_text("fake image")
+                mock_find_image_file.return_value = str(test_image)
+                
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    search=True,
+                    updated_after="2025-10-24T16:00:00Z",
+                    logger=logger,
+                )
+                extractor.run()
+                
+                # Verify cache file was created with hash-based name
+                cache_files = list(Path(tmpdir).glob(".log/immich_cache_search_*.json"))
+                self.assertEqual(len(cache_files), 1, "Search cache file should be created")
+                
+                # Verify cache contains the search results
+                with open(cache_files[0]) as f:
+                    cache_data = json.load(f)
+                self.assertIn("assets", cache_data)
+                self.assertIn("query", cache_data)
+                self.assertEqual(len(cache_data["assets"]), 1)
+                self.assertEqual(cache_data["assets"][0]["id"], "search_asset1")
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    def test_search_cache_reused_on_second_run(
+        self,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test that search cache is reused when same query is executed."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.session = MagicMock()
+        mock_api.get_asset_details.return_value = {
+            "id": "cached_search_asset",
+            "originalFileName": "cached_search.jpg",
+            "tags": ["cached_search_tag"],
+            "description": "cached search desc",
+            "exifInfo": {
+                "dateTimeOriginal": "2025-10-30T14:00:00.000Z",
+                "timeZone": "UTC"
+            },
+        }
+        
+        mock_find_image_file.return_value = __file__
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "skipped"
+        
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "cached search desc",
+            "Subject": ["cached_search_tag"],
+            "DateTimeOriginal": "2025:10:30 14:00:00",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                logger = logging.getLogger("test_search_cache_reuse")
+                logger.setLevel(logging.DEBUG)
+                
+                # Pre-create search cache with specific query criteria
+                # Generate cache key matching immich_extractor.py logic
+                cache_key = "search_after_2025-11-01T00:00:00Z"
+                
+                cache_dir = Path(tmpdir) / ".log"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_file = cache_dir / f"immich_cache_{cache_key}.json"
+                
+                cache_data = {
+                    "assets": [
+                        {
+                            "id": "cached_search_asset",
+                            "originalFileName": "cached_search.jpg",
+                            "tags": ["cached_search_tag"],
+                            "description": "cached search desc",
+                            "exifInfo": {
+                                "dateTimeOriginal": "2025-10-30T14:00:00.000Z",
+                                "timeZone": "UTC"
+                            },
+                        }
+                    ],
+                    "query": {
+                        "updatedAfter": "2025-11-01T00:00:00Z",
+                        "isArchived": False,
+                    }
+                }
+                with open(cache_file, "w") as f:
+                    json.dump(cache_data, f)
+                
+                # Create the actual image file so find_image_file can find it
+                test_image = Path(tmpdir) / "cached_search.jpg"
+                test_image.write_text("fake image")
+                mock_find_image_file.return_value = str(test_image)
+                
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    search=True,
+                    updated_after="2025-11-01T00:00:00Z",
+                    search_archive=False,
+                    logger=logger,
+                )
+                extractor.run()
+                
+                # Verify search API was NOT called (cache was used)
+                mock_api.session.post.assert_not_called()
+                
+                # Verify the cached asset was processed (analyzer was called)
+                self.assertTrue(mock_ImageAnalyzer.return_value.get_exif.called)
+            finally:
+                os.chdir(old_cwd)
+
+    @patch("os.path.exists", return_value=True)
+    @patch("exif.immich_extractor.ImmichAPI")
+    @patch("exif.immich_extractor.ExifToolManager")
+    @patch("exif.immich_extractor.find_image_file")
+    @patch("exif.image_analyzer.ImageAnalyzer")
+    def test_search_cache_refreshed_with_flag(
+        self,
+        mock_ImageAnalyzer,
+        mock_find_image_file,
+        mock_ExifToolManager,
+        mock_ImmichAPI,
+        mock_exists,
+    ):
+        """Test that search cache is refreshed when --refresh-cache flag is used."""
+        mock_api = mock_ImmichAPI.return_value
+        mock_api.session = MagicMock()
+        
+        # Mock get_asset_details to return full asset details
+        mock_api.get_asset_details.return_value = {
+            "id": "refreshed_asset",
+            "originalFileName": "refreshed.jpg",
+            "tags": ["refreshed_tag"],
+            "description": "refreshed desc",
+            "exifInfo": {
+                "dateTimeOriginal": "2025-12-01T10:00:00.000Z",
+                "timeZone": "UTC"
+            },
+        }
+        
+        # Mock the search API response with new data
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "assets": {
+                "items": [
+                    {
+                        "id": "refreshed_asset",
+                        "originalFileName": "refreshed.jpg",
+                        "tags": ["refreshed_tag"],
+                        "description": "refreshed desc",
+                        "exifInfo": {
+                            "dateTimeOriginal": "2025-12-01T10:00:00.000Z",
+                            "timeZone": "UTC"
+                        },
+                    }
+                ],
+                "nextPage": None,
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_api.session.post.return_value = mock_response
+        
+        mock_ExifToolManager.check_exiftool.return_value = True
+        mock_ExifToolManager.update_exif.return_value = "skipped"
+        
+        analyzer_instance = mock_ImageAnalyzer.return_value
+        analyzer_instance.get_exif.return_value = {
+            "Description": "refreshed desc",
+            "Subject": ["refreshed_tag"],
+            "DateTimeOriginal": "2025:12:01 10:00:00",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                logger = logging.getLogger("test_search_cache_refresh")
+                logger.setLevel(logging.DEBUG)
+                
+                # Create dummy image file
+                test_image = Path(tmpdir) / "refreshed.jpg"
+                test_image.write_text("fake image")
+                mock_find_image_file.return_value = str(test_image)
+                
+                # Pre-create old search cache
+                cache_key = "search_after_2025-12-01T00:00:00Z"
+                
+                cache_dir = Path(tmpdir) / ".log"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_file = cache_dir / f"immich_cache_{cache_key}.json"
+                
+                old_cache_data = {
+                    "assets": [
+                        {
+                            "id": "old_search_asset",
+                            "originalFileName": "old_search.jpg",
+                        }
+                    ],
+                    "query": {}
+                }
+                with open(cache_file, "w") as f:
+                    json.dump(old_cache_data, f)
+                
+                extractor = ImmichExtractor(
+                    url="http://test",
+                    api_key="key",
+                    search_path=tmpdir,
+                    search=True,
+                    updated_after="2025-12-01T00:00:00Z",
+                    refresh_cache=True,  # Force refresh
+                    logger=logger,
+                )
+                extractor.run()
+                
+                # Verify search API WAS called (cache was ignored)
+                mock_api.session.post.assert_called()
+                
+                # Verify cache was updated with new data
+                with open(cache_file) as f:
+                    new_cache_data = json.load(f)
+                self.assertEqual(new_cache_data["assets"][0]["id"], "refreshed_asset")
             finally:
                 os.chdir(old_cwd)
 

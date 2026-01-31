@@ -142,8 +142,7 @@ class ImmichExtractor:
         search: bool = False,
         updated_after: Optional[str] = None,
         search_archive: bool = False,
-        refresh_album_cache: bool = False,
-        use_album_cache: bool = False,
+        refresh_cache: bool = False,
         dry_run: bool = False,
         force_update_fuzzy: bool = False,
         disable_sidecars: bool = False,
@@ -158,8 +157,7 @@ class ImmichExtractor:
         self.updated_after = updated_after
         self.exif_timezone = exif_timezone
         self.search_archive = search_archive
-        self.refresh_album_cache = refresh_album_cache
-        self.use_album_cache = use_album_cache
+        self.refresh_cache = refresh_cache
         self.dry_run = dry_run
         self.force_update_fuzzy = force_update_fuzzy
         self.disable_sidecars = disable_sidecars
@@ -218,27 +216,61 @@ class ImmichExtractor:
         self.logger.debug(
             f"ImmichExtractor configuration: search_path={self.search_path!r}, album={self.album!r}, search={self.search}, updated_after={self.updated_after!r}"
         )
-        # Album cache logic
+        # Cache logic - supports both album and search query caching
         cache_dir = Path(".log")
         cache_dir.mkdir(exist_ok=True)
-        album_cache_path = cache_dir / "immich_album_cache.json"
-        album_cache = {}
-        need_refresh = self.refresh_album_cache or not album_cache_path.exists()
+        
+        # Generate cache key based on query type
+        import hashlib
+        if self.search:
+            # For search queries, cache key includes search criteria
+            cache_key_parts = ["search"]
+            if self.updated_after:
+                cache_key_parts.append(f"after_{self.updated_after}")
+            if self.search_archive:
+                cache_key_parts.append("archived")
+            cache_key = "_".join(cache_key_parts)
+            # Use hash for long keys
+            if len(cache_key) > 50:
+                cache_key = "search_" + hashlib.md5(cache_key.encode()).hexdigest()[:16]
+        else:
+            # For album queries, use album ID
+            cache_key = f"album_{self.album}" if self.album else "albums"
+        
+        cache_path = cache_dir / f"immich_cache_{cache_key}.json"
+        album_cache_path = cache_dir / "immich_album_cache.json"  # Backward compatibility
+        
+        # Determine if we need to refresh
+        need_refresh = self.refresh_cache or not cache_path.exists()
         self.logger.debug(
-            f"Album cache path: {album_cache_path}, need_refresh={need_refresh}, "
-            f"use_album_cache={self.use_album_cache}"
+            f"Cache path: {cache_path}, need_refresh={need_refresh}"
         )
-        if not need_refresh and self.use_album_cache:
+        
+        # Try to load from cache
+        cached_data = None
+        if not need_refresh:
             try:
-                self.logger.debug("Loading album cache from file...")
-                with open(album_cache_path, "r") as f:
-                    album_cache = json.load(f)
+                self.logger.debug(f"Loading cache from {cache_path}...")
+                with open(cache_path, "r") as f:
+                    cached_data = json.load(f)
+                self.logger.info(f"Using cache from {cache_path}")
             except Exception as e:
                 self.logger.info(
-                    f"Could not load album cache: {e}. Will refresh from Immich."
+                    f"Could not load cache: {e}. Will refresh from Immich."
                 )
                 need_refresh = True
-        if need_refresh:
+        
+        # Load or build album cache (for album name mapping)
+        album_cache = {}
+        if not self.refresh_cache and album_cache_path.exists():
+            try:
+                with open(album_cache_path, "r") as f:
+                    album_cache = json.load(f)
+                self.logger.debug(f"Loaded album cache with {len(album_cache)} entries")
+            except Exception:
+                pass
+        
+        if not album_cache or self.refresh_cache:
             self.logger.info("Fetching all albums from Immich to build album cache...")
             albums = self.api.list_albums()
             self.logger.debug(f"Got {len(albums)} albums from Immich.")
@@ -263,54 +295,75 @@ class ImmichExtractor:
             with open(album_cache_path, "w") as f:
                 json.dump(album_cache, f, indent=2)
             self.logger.info(f"Album cache written to {album_cache_path}")
-        else:
-            self.logger.info(f"Using album cache from {album_cache_path}")
-            with open(album_cache_path, "r") as f:
-                album_cache = json.load(f)
 
         self.logger.debug(f"Album cache loaded with {len(album_cache)} asset entries.")
         self.logger.debug("Entering asset selection phase (search=%s)." % self.search)
+        
         # Asset search or album fetch
+        assets = []
         if self.search:
-            self.logger.info("Searching assets via /api/search/metadata...")
-            search_payload = {}
-            if self.updated_after:
-                search_payload["updatedAfter"] = self.updated_after
-            search_payload["withExif"] = True
-            if self.search_archive:
-                search_payload["isArchived"] = True
-            page = 1
-            assets = []
-            asset_count = 0
-            import requests
-            try:
-                while True:
-                    search_payload["page"] = page
-                    resp = self.api.session.post(
-                        f"{self.api.base_url}/api/search/metadata", json=search_payload
-                    )
-                    resp.raise_for_status()
-                    assets_raw = resp.json()
-                    while isinstance(assets_raw, dict) and "data" in assets_raw:
-                        assets_raw = assets_raw["data"]
-                    if isinstance(assets_raw, dict) and "assets" in assets_raw:
-                        assets_obj = assets_raw["assets"]
-                        if (
-                            isinstance(assets_obj, dict)
-                            and "items" in assets_obj
-                            and isinstance(assets_obj["items"], list)
-                        ):
-                            assets.extend(assets_obj["items"])
-                            asset_count += len(assets_obj["items"])
-                            if asset_count % 10000 == 0:
-                                self.logger.info(f"Fetched {asset_count} assets so far...")
-                            if assets_obj.get("nextPage"):
-                                page = int(assets_obj.get("nextPage"))
+            # For search queries, check cache first
+            if cached_data and "assets" in cached_data:
+                assets = cached_data["assets"]
+                self.logger.info(f"Loaded {len(assets)} assets from cache.")
+            else:
+                self.logger.info("Searching assets via /api/search/metadata...")
+                search_payload = {}
+                if self.updated_after:
+                    search_payload["updatedAfter"] = self.updated_after
+                search_payload["withExif"] = True
+                if self.search_archive:
+                    search_payload["isArchived"] = True
+                page = 1
+                assets = []
+                asset_count = 0
+                import requests
+                try:
+                    while True:
+                        search_payload["page"] = page
+                        resp = self.api.session.post(
+                            f"{self.api.base_url}/api/search/metadata", json=search_payload
+                        )
+                        resp.raise_for_status()
+                        assets_raw = resp.json()
+                        while isinstance(assets_raw, dict) and "data" in assets_raw:
+                            assets_raw = assets_raw["data"]
+                        if isinstance(assets_raw, dict) and "assets" in assets_raw:
+                            assets_obj = assets_raw["assets"]
+                            if (
+                                isinstance(assets_obj, dict)
+                                and "items" in assets_obj
+                                and isinstance(assets_obj["items"], list)
+                            ):
+                                assets.extend(assets_obj["items"])
+                                asset_count += len(assets_obj["items"])
+                                if asset_count % 10000 == 0:
+                                    self.logger.info(f"Fetched {asset_count} assets so far...")
+                                if assets_obj.get("nextPage"):
+                                    page = int(assets_obj.get("nextPage"))
+                                else:
+                                    break
+                            elif isinstance(assets_obj, list):
+                                assets.extend(assets_obj)
+                                asset_count += len(assets_obj)
+                                if asset_count % 10000 == 0:
+                                    self.logger.info(f"Fetched {asset_count} assets so far...")
+                                if assets_raw.get("nextPage"):
+                                    page = int(assets_raw.get("nextPage"))
+                                else:
+                                    break
                             else:
+                                self.logger.info(
+                                    "Error: Could not find asset list in search API response."
+                                )
                                 break
-                        elif isinstance(assets_obj, list):
-                            assets.extend(assets_obj)
-                            asset_count += len(assets_obj)
+                        elif (
+                            isinstance(assets_raw, dict)
+                            and "assets" in assets_raw
+                            and isinstance(assets_raw["assets"], list)
+                        ):
+                            assets.extend(assets_raw["assets"])
+                            asset_count += len(assets_raw["assets"])
                             if asset_count % 10000 == 0:
                                 self.logger.info(f"Fetched {asset_count} assets so far...")
                             if assets_raw.get("nextPage"):
@@ -322,42 +375,43 @@ class ImmichExtractor:
                                 "Error: Could not find asset list in search API response."
                             )
                             break
-                    elif (
-                        isinstance(assets_raw, dict)
-                        and "assets" in assets_raw
-                        and isinstance(assets_raw["assets"], list)
-                    ):
-                        assets.extend(assets_raw["assets"])
-                        asset_count += len(assets_raw["assets"])
-                        if asset_count % 10000 == 0:
-                            self.logger.info(f"Fetched {asset_count} assets so far...")
-                        if assets_raw.get("nextPage"):
-                            page = int(assets_raw.get("nextPage"))
-                        else:
-                            break
-                    else:
-                        self.logger.info(
-                            "Error: Could not find asset list in search API response."
-                        )
-                        break
-                self.logger.info(f"Found {len(assets)} assets via search.")
-            except (requests.ConnectionError, requests.exceptions.RequestException) as e:
-                self.logger.error("Unable to connect to Immich server. This may be a DNS/network issue.")
-                self.logger.error("If you see a 'Temporary failure in name resolution' or similar error, try running the 'reset_dns' script and re-run this command.")
-                self.logger.error(f"Details: {e}")
-                return {
-                    "total_assets": 0,
-                    "updated_count": 0,
-                    "skipped_count": 0,
-                    "fuzzy_match_count": 0,
-                    "error_count": 1,
-                    "error_files": [],
-                    "audit_status_counts": {"connection_error": 1},
-                }
+                    self.logger.info(f"Found {len(assets)} assets via search.")
+                    # Save search results to cache
+                    try:
+                        with open(cache_path, "w") as f:
+                            json.dump({"assets": assets, "query": search_payload}, f, indent=2)
+                        self.logger.info(f"Search results cached to {cache_path}")
+                    except Exception as e:
+                        self.logger.warning(f"Could not write cache: {e}")
+                except (requests.ConnectionError, requests.exceptions.RequestException) as e:
+                    self.logger.error("Unable to connect to Immich server. This may be a DNS/network issue.")
+                    self.logger.error("If you see a 'Temporary failure in name resolution' or similar error, try running the 'reset_dns' script and re-run this command.")
+                    self.logger.error(f"Details: {e}")
+                    return {
+                        "total_assets": 0,
+                        "updated_count": 0,
+                        "skipped_count": 0,
+                        "fuzzy_match_count": 0,
+                        "error_count": 1,
+                        "error_files": [],
+                        "audit_status_counts": {"connection_error": 1},
+                    }
         else:
-            self.logger.info(f"Fetching assets for album {self.album}...")
-            assets = self.api.get_album_assets(self.album)
-            self.logger.info(f"Found {len(assets)} assets in album.")
+            # For album queries, check cache first
+            if cached_data and "assets" in cached_data:
+                assets = cached_data["assets"]
+                self.logger.info(f"Loaded {len(assets)} assets from cache.")
+            else:
+                self.logger.info(f"Fetching assets for album {self.album}...")
+                assets = self.api.get_album_assets(self.album)
+                self.logger.info(f"Found {len(assets)} assets in album.")
+                # Save album assets to cache
+                try:
+                    with open(cache_path, "w") as f:
+                        json.dump({"assets": assets, "album": self.album}, f, indent=2)
+                    self.logger.info(f"Album assets cached to {cache_path}")
+                except Exception as e:
+                    self.logger.warning(f"Could not write cache: {e}")
 
         updated_count = 0
         skipped_count = 0

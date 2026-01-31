@@ -57,15 +57,10 @@ SCRIPT_ARGUMENTS = {
         'action': 'store_true',
         'help': 'Search for archived assets (Immich isArchived=true)'
     },
-    'refresh_album_cache': {
-        'flag': '--refresh-album-cache',
+    'refresh_cache': {
+        'flag': '--refresh-cache',
         'action': 'store_true',
-        'help': 'Force refresh album cache from Immich'
-    },
-    'use_album_cache': {
-        'flag': '--use-album-cache',
-        'action': 'store_true',
-        'help': 'Use local album cache if present (default: use cache if present, refresh if not)'
+        'help': 'Force refresh cache from Immich (ignore existing cache)'
     },
     'log_file': {
         'flag': '--log-file',
@@ -155,8 +150,7 @@ def main():
         'search': 'Use search API',
         'updated_after': 'Only process assets updated after this ISO date/time',
         'search_archive': 'Search for archived assets',
-        'refresh_album_cache': 'Force refresh album cache',
-        'use_album_cache': 'Use local album cache',
+        'refresh_cache': 'Force refresh cache',
         'log_file': 'Log file',
         'force_update_fuzzy': 'Force update fuzzy datetime matches',
         'disable_sidecars': 'Disable sidecar files',
@@ -188,8 +182,7 @@ def main():
         search=resolved_args.get('search', False),
         updated_after=resolved_args.get('updated_after'),
         search_archive=resolved_args.get('search_archive', False),
-        refresh_album_cache=resolved_args.get('refresh_album_cache', False),
-        use_album_cache=resolved_args.get('use_album_cache', False),
+        refresh_cache=resolved_args.get('refresh_cache', False),
         dry_run=resolved_args.get('dry_run', False),
         force_update_fuzzy=resolved_args.get('force_update_fuzzy', False),
         disable_sidecars=resolved_args.get('disable_sidecars', False),
