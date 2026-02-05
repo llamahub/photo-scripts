@@ -261,7 +261,7 @@ def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, samp
     
     # Add coverage only if enabled (and usually not for specific tests)
     if coverage:
-        cmd += " --cov=src --cov-report=html --cov-report=term"
+        cmd += " --cov=src --cov=scripts --cov-report=html --cov-report=term"
     
     # Add verbose flag
     if verbose:
