@@ -9,6 +9,8 @@ import os
 import re
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -135,10 +137,13 @@ class ImageAnalyzer:
         source_root: str,
         logger,
         detect_true_ext: bool = True,
+        max_workers: Optional[int] = None,
     ):
         self.source_root = Path(source_root)
         self.logger = logger
         self.detect_true_ext = detect_true_ext
+        self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
+        self.exif_timeout_files: List[Path] = []
         self.exiftool_available = shutil.which("exiftool") is not None
 
         if not self.exiftool_available:
@@ -150,22 +155,49 @@ class ImageAnalyzer:
 
         rows = 0
         progress_interval = 50
+        max_in_flight = self.max_workers * 4
+        file_iter = iter(self._iter_image_files())
+
         with output_path.open("w", newline="", encoding="utf-8") as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=self._csv_headers())
             writer.writeheader()
 
-            for file_path in self._iter_image_files():
-                row = self._analyze_file(file_path)
-                writer.writerow(self._row_to_dict(row))
-                rows += 1
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = set()
 
-                self.logger.audit(
-                    f"AUDIT file={row.filename} image_date={row.image_date} "
-                    f"sidecar_date={row.sidecar_date} status=ok"
-                )
+                def submit_next():
+                    try:
+                        next_path = next(file_iter)
+                    except StopIteration:
+                        return False
+                    futures.add(executor.submit(self._analyze_file, next_path))
+                    return True
 
-                if rows % progress_interval == 0:
-                    self.logger.info(f"Progress: {rows} files processed")
+                for _ in range(max_in_flight):
+                    if not submit_next():
+                        break
+
+                while futures:
+                    done, futures = wait(futures, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        row = future.result()
+                        writer.writerow(self._row_to_dict(row))
+                        rows += 1
+
+                        self.logger.audit(
+                            f"AUDIT file={row.filename} image_date={row.image_date} "
+                            f"sidecar_date={row.sidecar_date} status=ok"
+                        )
+
+                        if rows % progress_interval == 0:
+                            self.logger.info(f"Progress: {rows} files processed")
+
+                    while len(futures) < max_in_flight:
+                        if not submit_next():
+                            break
+
+        if self.exif_timeout_files:
+            self._retry_exif_timeouts()
 
         return rows
 
@@ -186,16 +218,27 @@ class ImageAnalyzer:
         folder_date = self._extract_folder_date(file_path.parent.name)
         filename_date = self._extract_filename_date(file_path.name)
 
-        sidecar_date = self._get_first_exif_value(sidecar_exif, EXIF_DATE_PRIORITY)
+        sidecar_date_raw = self._get_first_exif_value(sidecar_exif, EXIF_DATE_PRIORITY)
+        sidecar_date, sidecar_offset_from_date = self._split_datetime_offset(
+            sidecar_date_raw
+        )
         sidecar_offset = self._get_first_exif_value(sidecar_exif, OFFSET_KEYS)
+        if not sidecar_offset:
+            sidecar_offset = sidecar_offset_from_date
         sidecar_timezone = self._format_timezone(sidecar_date, sidecar_offset)
         sidecar_description = self._get_first_exif_value(sidecar_exif, DESCRIPTION_KEYS)
-        sidecar_tags = self._format_tags(
-            self._get_first_exif_value(sidecar_exif, TAGS_KEYS)
-        )
+        sidecar_tags_value = self._get_first_exif_value(sidecar_exif, TAGS_KEYS)
+        sidecar_tags = self._format_tags(sidecar_tags_value)
+        if sidecar_path and sidecar_path.suffix.lower() == ".xmp":
+            xmp_tags = self._extract_xmp_tags(sidecar_path)
+            if xmp_tags:
+                sidecar_tags = "; ".join(xmp_tags)
 
-        image_date = self._get_first_exif_value(image_exif, EXIF_DATE_PRIORITY)
+        image_date_raw = self._get_first_exif_value(image_exif, EXIF_DATE_PRIORITY)
+        image_date, image_offset_from_date = self._split_datetime_offset(image_date_raw)
         image_offset = self._get_first_exif_value(image_exif, OFFSET_KEYS)
+        if not image_offset:
+            image_offset = image_offset_from_date
         image_timezone = self._format_timezone(image_date, image_offset)
         image_description = self._get_first_exif_value(image_exif, DESCRIPTION_KEYS)
         image_tags = self._format_tags(self._get_first_exif_value(image_exif, TAGS_KEYS))
@@ -229,10 +272,21 @@ class ImageAnalyzer:
     def _read_exif(self, file_path: Path | None) -> Dict:
         if not file_path or not self.exiftool_available:
             return {}
+        return self._read_exif_with_timeout(file_path, timeout=10, track_timeouts=True)
 
+    def _read_exif_with_timeout(
+        self, file_path: Path, timeout: int, track_timeouts: bool
+    ) -> Dict:
         cmd = ["exiftool", "-j", str(file_path)]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if track_timeouts and file_path not in self.exif_timeout_files:
+                self.exif_timeout_files.append(file_path)
+            self.logger.error(
+                f"EXIF extraction timed out for {file_path} after {timeout}s"
+            )
+            return {}
         except Exception as exc:
             self.logger.error(f"EXIF extraction failed for {file_path}: {exc}")
             return {}
@@ -249,6 +303,22 @@ class ImageAnalyzer:
             return {}
 
         return data[0] if isinstance(data, list) else data
+
+    def _retry_exif_timeouts(self) -> None:
+        retry_timeout = 30
+        total = len(self.exif_timeout_files)
+        self.logger.info(
+            f"Retrying EXIF timeouts sequentially ({total} files, timeout={retry_timeout}s)"
+        )
+
+        for path in self.exif_timeout_files:
+            data = self._read_exif_with_timeout(
+                path, timeout=retry_timeout, track_timeouts=False
+            )
+            if data:
+                self.logger.info(f"EXIF retry succeeded: {path}")
+            else:
+                self.logger.error(f"EXIF retry failed: {path}")
 
     def _extract_folder_date(self, folder_name: str) -> str:
         date_match = re.search(r"(\d{4})[-_]?([01]\d)?[-_]?([0-3]\d)?", folder_name)
@@ -290,6 +360,17 @@ class ImageAnalyzer:
         if isinstance(value, list):
             return "; ".join(str(item) for item in value if item)
         return str(value)
+
+    def _split_datetime_offset(self, value: str) -> tuple[str, str]:
+        if not value:
+            return "", ""
+        text = str(value).strip()
+        match = re.match(r"^(.*?)([+-]\d{2}:?\d{2})$", text)
+        if not match:
+            return text, ""
+        date_part = match.group(1).strip()
+        offset_part = match.group(2)
+        return date_part, offset_part
 
     def _format_tags(self, value: str) -> str:
         if not value:
@@ -341,6 +422,50 @@ class ImageAnalyzer:
             "heif": "heic",
         }
         return mapping.get(fmt, fmt or file_path.suffix.lower().lstrip("."))
+
+    def _extract_xmp_tags(self, file_path: Path) -> List[str]:
+        try:
+            content = file_path.read_text(errors="ignore")
+        except Exception:
+            return []
+
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            return []
+
+        tags: List[str] = []
+        parent_map = {child: parent for parent in root.iter() for child in parent}
+
+        def local_name(tag: str) -> str:
+            return tag.split("}")[-1].lower() if tag else ""
+
+        for elem in root.iter():
+            name = local_name(elem.tag)
+
+            if name in {"subject", "keywords", "tagslist"}:
+                if elem.text and elem.text.strip():
+                    tags.append(elem.text.strip())
+
+            if name == "li":
+                ancestor = parent_map.get(elem)
+                allow = False
+                while ancestor is not None:
+                    ancestor_name = local_name(ancestor.tag)
+                    if ancestor_name in {"subject", "keywords", "tagslist"}:
+                        allow = True
+                        break
+                    ancestor = parent_map.get(ancestor)
+                if allow and elem.text and elem.text.strip():
+                    tags.append(elem.text.strip())
+
+        deduped: List[str] = []
+        seen = set()
+        for tag in tags:
+            if tag not in seen:
+                seen.add(tag)
+                deduped.append(tag)
+        return deduped
 
     def _csv_headers(self) -> List[str]:
         return [
