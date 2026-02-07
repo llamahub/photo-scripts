@@ -121,12 +121,12 @@ class ImageRow:
     sidecar_timezone: str
     sidecar_description: str
     sidecar_tags: str
-    image_date: str
-    image_offset: str
-    image_timezone: str
-    image_description: str
-    image_tags: str
-    image_ext: str
+    exif_date: str
+    exif_offset: str
+    exif_timezone: str
+    exif_description: str
+    exif_tags: str
+    exif_ext: str
 
 
 class ImageAnalyzer:
@@ -185,7 +185,7 @@ class ImageAnalyzer:
                         rows += 1
 
                         self.logger.audit(
-                            f"AUDIT file={row.filename} image_date={row.image_date} "
+                            f"AUDIT file={row.filename} exif_date={row.exif_date} "
                             f"sidecar_date={row.sidecar_date} status=ok"
                         )
 
@@ -234,15 +234,15 @@ class ImageAnalyzer:
             if xmp_tags:
                 sidecar_tags = "; ".join(xmp_tags)
 
-        image_date_raw = self._get_first_exif_value(image_exif, EXIF_DATE_PRIORITY)
-        image_date, image_offset_from_date = self._split_datetime_offset(image_date_raw)
-        image_offset = self._get_first_exif_value(image_exif, OFFSET_KEYS)
-        if not image_offset:
-            image_offset = image_offset_from_date
-        image_timezone = self._format_timezone(image_date, image_offset)
-        image_description = self._get_first_exif_value(image_exif, DESCRIPTION_KEYS)
-        image_tags = self._format_tags(self._get_first_exif_value(image_exif, TAGS_KEYS))
-        image_ext = self._get_true_extension(file_path)
+        exif_date_raw = self._get_first_exif_value(image_exif, EXIF_DATE_PRIORITY)
+        exif_date, exif_offset_from_date = self._split_datetime_offset(exif_date_raw)
+        exif_offset = self._get_first_exif_value(image_exif, OFFSET_KEYS)
+        if not exif_offset:
+            exif_offset = exif_offset_from_date
+        exif_timezone = self._format_timezone(exif_date, exif_offset)
+        exif_description = self._get_first_exif_value(image_exif, DESCRIPTION_KEYS)
+        exif_tags = self._format_tags(self._get_first_exif_value(image_exif, TAGS_KEYS))
+        exif_ext = self._get_true_extension(file_path)
 
         return ImageRow(
             filename=str(file_path),
@@ -254,12 +254,12 @@ class ImageAnalyzer:
             sidecar_timezone=sidecar_timezone,
             sidecar_description=sidecar_description,
             sidecar_tags=sidecar_tags,
-            image_date=image_date,
-            image_offset=image_offset,
-            image_timezone=image_timezone,
-            image_description=image_description,
-            image_tags=image_tags,
-            image_ext=image_ext,
+            exif_date=exif_date,
+            exif_offset=exif_offset,
+            exif_timezone=exif_timezone,
+            exif_description=exif_description,
+            exif_tags=exif_tags,
+            exif_ext=exif_ext,
         )
 
     def _find_sidecar(self, file_path: Path) -> Optional[Path]:
@@ -478,12 +478,12 @@ class ImageAnalyzer:
             "Sidecar Timezone",
             "Sidecar Description",
             "Sidecar Tags",
-            "Image Date",
-            "Image Offset",
-            "Image Timezone",
-            "Image Description",
-            "Image Tags",
-            "Image Ext",
+            "EXIF Date",
+            "EXIF Offset",
+            "EXIF Timezone",
+            "EXIF Description",
+            "EXIF Tags",
+            "EXIF Ext",
         ]
 
     def _row_to_dict(self, row: ImageRow) -> Dict[str, str]:
@@ -497,10 +497,10 @@ class ImageAnalyzer:
             "Sidecar Timezone": row.sidecar_timezone,
             "Sidecar Description": row.sidecar_description,
             "Sidecar Tags": row.sidecar_tags,
-            "Image Date": row.image_date,
-            "Image Offset": row.image_offset,
-            "Image Timezone": row.image_timezone,
-            "Image Description": row.image_description,
-            "Image Tags": row.image_tags,
-            "Image Ext": row.image_ext,
+            "EXIF Date": row.exif_date,
+            "EXIF Offset": row.exif_offset,
+            "EXIF Timezone": row.exif_timezone,
+            "EXIF Description": row.exif_description,
+            "EXIF Tags": row.exif_tags,
+            "EXIF Ext": row.exif_ext,
         }
