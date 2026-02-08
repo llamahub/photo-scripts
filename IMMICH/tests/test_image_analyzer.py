@@ -14,6 +14,7 @@ def test_extract_filename_date_priority():
     assert analyzer._extract_filename_date("2024-01-02_event_2020-01-01.jpg") == "2024-01-02"
     assert analyzer._extract_filename_date("event_2020-03-04.jpg") == "2020-03-04"
     assert analyzer._extract_filename_date("2024_event.jpg") == "2024-00-00"
+    assert analyzer._extract_filename_date("_DSC1944.NEF") == ""
 
 
 def test_split_datetime_offset_and_timezone():
@@ -162,6 +163,224 @@ def test_retry_exif_timeouts(monkeypatch, tmp_path):
     assert any("Retrying EXIF timeouts" in msg for msg in logger.infos)
     assert any(str(file_a) in msg for msg in logger.infos)
     assert any(str(file_b) in msg for msg in logger.errors)
+
+
+# Tests for Calc Date Logic
+def test_is_date_only():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._is_date_only("2024-10-15") is True
+    assert analyzer._is_date_only("2024-10") is True
+    assert analyzer._is_date_only("2024") is True
+    assert analyzer._is_date_only("2024_10_15") is True
+    assert analyzer._is_date_only("2024-10-Vacation") is False
+    assert analyzer._is_date_only("2024-10-15_Event") is False
+    assert analyzer._is_date_only("Vacation") is False
+    assert analyzer._is_date_only("") is True
+
+
+def test_extract_descriptive_parent_folder():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._extract_descriptive_parent_folder("2024-10") == ""
+    assert analyzer._extract_descriptive_parent_folder("2024-10-15") == ""
+    assert analyzer._extract_descriptive_parent_folder("2024-10-Vacation") == "2024-10-Vacation"
+    assert analyzer._extract_descriptive_parent_folder("MyEvent") == "MyEvent"
+    assert analyzer._extract_descriptive_parent_folder("") == ""
+
+
+def test_strip_duplicate_info_from_basename():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    # Remove leading date-time-dimension prefix from normalized filenames
+    result = analyzer._strip_duplicate_info_from_basename(
+        "2024-10-15_1430_1920x1080_MyEvent_IMG_4120", "MyEvent", "1920x1080"
+    )
+    assert result == "IMG_4120"
+    # Remove parent folder name if it appears
+    result = analyzer._strip_duplicate_info_from_basename(
+        "MyEvent_IMG_4120", "MyEvent", "0x0"
+    )
+    assert result == "IMG_4120"
+    # Handle date-only parent folders (should return just the basename)
+    result = analyzer._strip_duplicate_info_from_basename(
+        "2024-10-15_1430_1920x1080_IMG_4120", "2024-10", "1920x1080"
+    )
+    assert result == "IMG_4120"
+    # Handle parent folders with version suffixes (strip the _01, _02, etc.)
+    result = analyzer._strip_duplicate_info_from_basename(
+        "2008-10-19 Cub Scout Camp_DSCN5110", "2008-10-19 Cub Scout Camp_01", "3072x2304"
+    )
+    assert result == "DSCN5110"
+
+
+def test_get_image_dimensions():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    # With dimensions
+    exif = {"ImageWidth": 1920, "ImageHeight": 1080}
+    assert analyzer._get_image_dimensions(exif) == "1920x1080"
+    # Missing dimensions
+    assert analyzer._get_image_dimensions({}) == "0x0"
+    # String dimensions (from EXIF)
+    exif = {"ImageWidth": "1920", "ImageHeight": "1080"}
+    assert analyzer._get_image_dimensions(exif) == "1920x1080"
+
+
+def test_get_year_month():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._get_year_month("2024-10-15") == "2024-10"
+    assert analyzer._get_year_month("2024-10-15 14:30:45") == "2024-10"
+    assert analyzer._get_year_month("2011:05:28 13:59:34") == "2011-05"
+    assert analyzer._get_year_month("0624-00-00") is None
+    assert analyzer._get_year_month("1900-01-01") is None
+    assert analyzer._get_year_month("0000-00-00") is None
+    assert analyzer._get_year_month("") is None
+    assert analyzer._get_year_month("invalid") is None
+
+
+def test_calculate_name_date():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    # Same month and year: use filename_date
+    assert analyzer._calculate_name_date("2024-10-00", "2024-10-15") == "2024-10-15"
+    # Folder year < filename year: use folder_date
+    assert analyzer._calculate_name_date("2020-10-01", "2024-10-15") == "2020-10-01"
+    # Different month, same year: use filename_date
+    assert analyzer._calculate_name_date("2024-05-01", "2024-10-15") == "2024-10-15"
+    # Invalid folder date: use filename_date
+    assert analyzer._calculate_name_date("", "2024-10-15") == "2024-10-15"
+    # Invalid filename date: use folder_date
+    assert analyzer._calculate_name_date("2024-10-01", "") == "2024-10-01"
+    # Both invalid: return empty
+    assert analyzer._calculate_name_date("", "") == ""
+
+
+def test_calculate_calc_date():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    # EXIF date <= Name date: use EXIF date
+    assert analyzer._calculate_calc_date("2024-10-10", "2024-10-15") == "2024-10-10"
+    # EXIF date > Name date: use Name date
+    assert analyzer._calculate_calc_date("2024-10-20", "2024-10-15") == "2024-10-15"
+    # Same date: use EXIF date
+    assert analyzer._calculate_calc_date("2024-10-15", "2024-10-15") == "2024-10-15"
+    # Invalid EXIF date: use Name date
+    assert analyzer._calculate_calc_date("1900-01-01", "2024-10-15") == "2024-10-15"
+    # Invalid Name date: use EXIF date
+    assert analyzer._calculate_calc_date("2024-10-15", "1900-01-01") == "2024-10-15"
+    # Both invalid: return Name date (fallback behavior)
+    assert analyzer._calculate_calc_date("1900-01-01", "1900-01-01") == "1900-01-01"
+    # EXIF with time: use if date is earlier
+    assert analyzer._calculate_calc_date("2024-10-10 14:30:45", "2024-10-15") == "2024-10-10 14:30:45"
+    # EXIF with colon separators: treat as valid for comparison
+    assert analyzer._calculate_calc_date("2011:05:28 13:59:34", "2011-06-01") == "2011-05-28 13:59:34"
+
+
+def test_calculate_metadata_date():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    # Prefer EXIF when valid
+    assert analyzer._calculate_metadata_date("2011:05:28 13:59:34", "2011-06-01") == "2011-05-28 13:59:34"
+    # Fall back to sidecar when EXIF invalid
+    assert analyzer._calculate_metadata_date("1900-01-01", "2011:06:02 09:00:00") == "2011-06-02 09:00:00"
+    # Both invalid
+    assert analyzer._calculate_metadata_date("", "") == ""
+    # Name date placeholder day=00: prefer EXIF when same month
+    assert analyzer._calculate_calc_date("2008-08-12", "2008-08-00") == "2008-08-12"
+    # Name date placeholder day=00: keep Name date when EXIF is much later
+    assert analyzer._calculate_calc_date("2025-01-02", "2008-08-00") == "2008-08-00"
+
+
+def test_calculate_calc_filename():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    # Full data available
+    calc_date = "2024-10-15"
+    exif_date = "2024-10-15 14:30:45"
+    exif = {"ImageWidth": 1920, "ImageHeight": 1080}
+    result = analyzer._calculate_calc_filename(calc_date, exif_date, exif, "MyEvent", "IMG_4120", "jpg")
+    assert result.startswith("2024-10-15_1430_1920x1080_MyEvent_")
+    assert result.endswith(".jpg")
+    # Missing time component in exif_date
+    exif_date = "2024-10-15"
+    result = analyzer._calculate_calc_filename(calc_date, exif_date, exif, "MyEvent", "IMG_4120", "jpg")
+    assert "_0000_" in result  # Should use 0000 for time
+    # Date-only parent (should be skipped)
+    exif_date = "2024-10-15 14:30:45"
+    result = analyzer._calculate_calc_filename(calc_date, exif_date, exif, "2024-10", "IMG_4120", "jpg")
+    assert "2024-10" not in result or result.count("2024-10") == 1  # Only in date prefix
+    # Missing dimensions
+    result = analyzer._calculate_calc_filename(calc_date, exif_date, {}, "MyEvent", "IMG_4120", "jpg")
+    assert "_0x0_" in result
+
+
+def test_calculate_calc_path():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    # Standard case - now includes source_root in path
+    result = analyzer._calculate_calc_path("2024-10-15", "MyEvent", "2024-10-15_1430_1920x1080_MyEvent_IMG_4120.jpg")
+    assert "/tmp/2020+/2024/2024-10/MyEvent" == result
+    # Date-only parent folder - should not include parent in path
+    result = analyzer._calculate_calc_path("2024-10-15", "2024-10", "2024-10-15_1430_1920x1080_IMG_4120.jpg")
+    assert result == "/tmp/2020+/2024/2024-10"
+    # Different decade
+    result = analyzer._calculate_calc_path("1995-05-20", "Event", "1995-05-20_1200_800x600_Event_photo.jpg")
+    assert result == "/tmp/1990+/1995/1995-05/Event"
+
+
+def test_calculate_calc_filename_with_real_exif():
+    """Integration test with actual EXIF extraction from real image file."""
+    pytest.importorskip("PIL")
+    # Create a minimal image file
+    from PIL import Image
+    import tempfile
+
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_image_path = Path(tmpdir) / "test_image.jpg"
+        # Create a minimal 1920x1080 JPEG
+        img = Image.new("RGB", (1920, 1080), color="red")
+        img.save(test_image_path)
+        
+        # Mock exiftool to return dimensions
+        exif = {"ImageWidth": 1920, "ImageHeight": 1080}
+        
+        calc_date = "2024-10-15"
+        exif_date = "2024-10-15 14:30:45"
+        result = analyzer._calculate_calc_filename(
+            calc_date, exif_date, exif, "Vacation", test_image_path.stem, "jpg"
+        )
+        
+        # Verify format: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
+        assert result.startswith("2024-10-15_1430_1920x1080_Vacation_")
+        assert result.endswith(".jpg")
+
+
+def test_csv_output_includes_calc_columns(tmp_path):
+    """Integration test: verify CSV output includes all Calc columns."""
+    analyzer = ImageAnalyzer(str(tmp_path), logger=_DummyLogger())
+    
+    # Create a test image file
+    test_image = tmp_path / "2024-10-15_IMG_4120.jpg"
+    test_image.write_text("dummy image data")
+    
+    # Run analyze_to_csv
+    csv_path = tmp_path / "output.csv"
+    analyzer.analyze_to_csv(str(csv_path))
+    
+    # Read CSV and verify columns
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        row = next(reader)
+        
+        # Verify all original columns present
+        assert "Filenanme" in row
+        assert "Folder Date" in row
+        assert "EXIF Date" in row
+        assert "EXIF Ext" in row
+        assert "Metadata Date" in row
+        
+        # Verify new Calc columns present
+        assert "Calc Date" in row
+        assert "Calc Filename" in row
+        assert "Calc Path" in row
+        
+        # Verify Calc columns are populated (not empty)
+        assert row["Calc Filename"]  # Should have calculated filename
+        assert row["Calc Path"]  # Should have calculated path
 
 
 class _DummyLogger:

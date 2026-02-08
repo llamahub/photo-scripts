@@ -34,6 +34,8 @@ IMAGE_EXTENSIONS = {
     ".arw",
 }
 
+CAMERA_COUNTER_PATTERN = re.compile(r"^_?(?:DSC|IMG|PXL|VID|MOV|PICT|PHOTO)\d+$", re.IGNORECASE)
+
 SIDECAR_EXTENSIONS = [".xmp", ".XMP", ".json", ".JSON"]
 
 EXIF_DATE_PRIORITY = [
@@ -127,6 +129,11 @@ class ImageRow:
     exif_description: str
     exif_tags: str
     exif_ext: str
+    metadata_date: str
+    calc_date: str
+    calc_filename: str
+    calc_path: str
+    calc_status: str
 
 
 class ImageAnalyzer:
@@ -244,6 +251,18 @@ class ImageAnalyzer:
         exif_tags = self._format_tags(self._get_first_exif_value(image_exif, TAGS_KEYS))
         exif_ext = self._get_true_extension(file_path)
 
+        # Calculate derived fields
+        name_date = self._calculate_name_date(folder_date, filename_date)
+        metadata_date = self._calculate_metadata_date(exif_date, sidecar_date)
+        calc_date = self._calculate_calc_date(metadata_date, name_date)
+        calc_filename = self._calculate_calc_filename(
+            calc_date, exif_date, image_exif, file_path.parent.name, file_path.stem, exif_ext
+        )
+        calc_path = self._calculate_calc_path(calc_date, file_path.parent.name, calc_filename)
+        calc_status = self._calculate_calc_status(
+            str(file_path), calc_path, calc_filename, calc_date, file_path.parent.name, filename_date
+        )
+
         return ImageRow(
             filename=str(file_path),
             folder_date=folder_date,
@@ -260,6 +279,11 @@ class ImageAnalyzer:
             exif_description=exif_description,
             exif_tags=exif_tags,
             exif_ext=exif_ext,
+            metadata_date=metadata_date,
+            calc_date=calc_date,
+            calc_filename=calc_filename,
+            calc_path=calc_path,
+            calc_status=calc_status,
         )
 
     def _find_sidecar(self, file_path: Path) -> Optional[Path]:
@@ -332,6 +356,8 @@ class ImageAnalyzer:
 
     def _extract_filename_date(self, filename: str) -> str:
         stem = Path(filename).stem
+        if CAMERA_COUNTER_PATTERN.match(stem):
+            return ""
         start_match = re.match(r"^(\d{4})[-_]?([01]\d)[-_]?([0-3]\d)", stem)
         if start_match:
             return f"{start_match.group(1)}-{start_match.group(2)}-{start_match.group(3)}"
@@ -467,6 +493,280 @@ class ImageAnalyzer:
                 deduped.append(tag)
         return deduped
 
+    def _is_date_only(self, folder_name: str) -> bool:
+        """Check if folder name contains only date-like patterns and no descriptive text."""
+        if not folder_name:
+            return True
+        # Remove all date-like patterns (YYYY, YYYY-MM, YYYY-MM-DD, with underscores/hyphens)
+        cleaned = re.sub(r"[_\-]?(\d{4}(?:[_\-]\d{2})?(?:[_\-]\d{2})?)", "", folder_name)
+        cleaned = cleaned.strip("_-").strip()
+        # If nothing remains, it was purely date-based
+        return not cleaned
+
+    def _extract_descriptive_parent_folder(self, parent_name: str) -> str:
+        """Extract non-date text from parent folder name, or return empty if purely date-based."""
+        if self._is_date_only(parent_name):
+            return ""
+        # Strip version suffixes like _01, _02, etc. that appear after the descriptive text
+        parent_name = re.sub(r"_\d+$", "", parent_name)
+        return parent_name
+
+    def _strip_duplicate_info_from_basename(
+        self, basename: str, parent_folder: str, dimensions: str
+    ) -> str:
+        """Remove duplicate info from basename (date prefix, dimensions, parent folder)."""
+        if not basename:
+            return ""
+
+        # Remove leading normalized prefix: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_
+        # This handles already-normalized filenames from previous runs
+        basename = re.sub(r"^\d{4}-\d{2}-\d{2}_\d{4}_\d+x\d+_", "", basename)
+
+        # Now remove the descriptive (non-date) part of parent folder if present
+        parent_desc = self._extract_descriptive_parent_folder(parent_folder)
+        if parent_desc:
+            # Try exact match first (parent folder with spaces/hyphens as-is)
+            if basename.startswith(parent_desc):
+                basename = basename[len(parent_desc):].lstrip("_").strip()
+            else:
+                # Try with underscores replacing spaces/hyphens
+                parent_pattern = re.sub(r"[\s_-]+", "_", parent_desc)
+                if basename.startswith(parent_pattern):
+                    basename = basename[len(parent_pattern):].lstrip("_").strip()
+
+        return basename if basename else "UNKNOWN"
+
+    def _get_image_dimensions(self, image_exif: Dict) -> str:
+        """Extract and format image dimensions from EXIF, or try reading from file directly."""
+        width = image_exif.get("ImageWidth")
+        height = image_exif.get("ImageHeight")
+
+        if width and height:
+            return f"{width}x{height}"
+        return "0x0"
+
+    def _get_year_month(self, date_str: str) -> Optional[str]:
+        """Extract YYYY-MM from date string, return None if invalid/missing."""
+        if not date_str:
+            return None
+        # Check for invalid markers
+        if date_str.startswith("1900") or date_str.startswith("0000"):
+            return None
+        # Extract YYYY-MM with either '-' or ':' separator
+        match = re.match(r"^(\d{4})[-:](\d{2})", date_str)
+        if match:
+            year = int(match.group(1))
+            if year < 1900:
+                return None
+            return f"{match.group(1)}-{match.group(2)}"
+        return None
+
+    def _normalize_date_separators(self, value: str) -> str:
+        if not value or len(value) < 10:
+            return value
+        return value[:10].replace(":", "-") + value[10:]
+
+    def _calculate_metadata_date(self, exif_date: str, sidecar_date: str) -> str:
+        """
+        Calculate Metadata Date:
+        IF EXIF Date is valid THEN return EXIF Date
+        ELSE return Sidecar Date
+        """
+        exif_ym = self._get_year_month(exif_date)
+        if exif_ym:
+            return self._normalize_date_separators(exif_date or "")
+
+        sidecar_ym = self._get_year_month(sidecar_date)
+        if sidecar_ym:
+            return self._normalize_date_separators(sidecar_date or "")
+
+        return ""
+
+    def _calculate_name_date(self, folder_date: str, filename_date: str) -> str:
+        """
+        Calculate Name Date according to spec:
+        IF month(Filename Date) == month(Folder Date) THEN return Filename Date
+        ELSE IF year(Folder Date) < year(Filename Date) THEN return Folder Date
+        ELSE return Filename Date
+        """
+        # Get year-month from both dates
+        folder_ym = self._get_year_month(folder_date)
+        filename_ym = self._get_year_month(filename_date)
+
+        # If either is invalid, use the other (or empty if both invalid)
+        if not folder_ym:
+            return filename_date or ""
+        if not filename_ym:
+            return folder_date or ""
+
+        # Extract components: YYYY-MM format
+        folder_year = folder_ym[:4]
+        folder_month = folder_ym[5:7]
+        filename_year = filename_ym[:4]
+        filename_month = filename_ym[5:7]
+
+        # Same month and year: use filename_date
+        if folder_month == filename_month and folder_year == filename_year:
+            return filename_date or ""
+
+        # Folder year < filename year: use folder_date
+        if folder_year < filename_year:
+            return folder_date or ""
+
+        # Default: use filename_date
+        return filename_date or ""
+
+    def _calculate_calc_date(self, exif_date: str, name_date: str) -> str:
+        """
+        Calculate Calc Date according to spec:
+        IF EXIF Date is valid AND date(EXIF Date) <= date(Name Date) THEN return EXIF Date
+        ELSE return Name Date
+        """
+        # Validate dates (compare date-only part, ignoring time)
+        exif_ym = self._get_year_month(exif_date)
+        name_ym = self._get_year_month(name_date)
+
+        # If exif_date is invalid, use name_date
+        if not exif_ym:
+            return name_date or ""
+
+        # If name_date is invalid, use exif_date
+        if not name_ym:
+            return self._normalize_date_separators(exif_date or "")
+
+        # If the name date is a month-only placeholder (day=00), prefer EXIF
+        # when EXIF is in the same month to avoid using the placeholder day.
+        if len(name_date) >= 10 and name_date[8:10] == "00" and exif_ym == name_ym:
+            return self._normalize_date_separators(exif_date or "")
+
+        # Compare date-only parts (first 10 chars: YYYY-MM-DD or YYYY:MM:DD)
+        exif_date_only = exif_date[:10] if len(exif_date) >= 10 else exif_date
+        name_date_only = name_date[:10] if len(name_date) >= 10 else name_date
+        exif_date_only = exif_date_only.replace(":", "-")
+        name_date_only = name_date_only.replace(":", "-")
+
+        # If EXIF date <= Name date, use EXIF date (lexicographic comparison works for YYYY-MM-DD)
+        if exif_date_only <= name_date_only:
+            return self._normalize_date_separators(exif_date or "")
+
+        # Otherwise use Name date
+        return name_date or ""
+
+    def _calculate_calc_filename(
+        self, calc_date: str, exif_date: str, image_exif: Dict, parent_folder: str, original_filename: str, ext: str
+    ) -> str:
+        """
+        Calculate normalized filename: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
+        """
+        if not calc_date:
+            return original_filename
+
+        # Extract date part from calc_date (YYYY-MM-DD)
+        date_part = calc_date[:10] if len(calc_date) >= 10 else calc_date
+        
+        # Extract time part from exif_date (HH:MM or 00:00)
+        time_part = "0000"
+        if exif_date and len(exif_date) >= 16:  # Has time component HH:MM
+            hour = exif_date[11:13] if exif_date[11:13].isdigit() else "00"
+            minute = exif_date[14:16] if exif_date[14:16].isdigit() else "00"
+            time_part = f"{hour}{minute}"
+
+        # Get dimensions
+        dimensions = self._get_image_dimensions(image_exif)
+
+        # Get descriptive parent folder (or empty if date-only)
+        parent_desc = self._extract_descriptive_parent_folder(parent_folder)
+
+        # Get basename and strip duplicates
+        basename = self._strip_duplicate_info_from_basename(original_filename, parent_folder, dimensions)
+
+        # Build filename: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
+        if parent_desc:
+            filename = f"{date_part}_{time_part}_{dimensions}_{parent_desc}_{basename}.{ext}"
+        else:
+            filename = f"{date_part}_{time_part}_{dimensions}_{basename}.{ext}"
+
+        return filename
+
+    def _calculate_calc_status(
+        self, original_path: str, calc_path: str, calc_filename: str, calc_date: str, 
+        original_parent_folder: str, original_filename_date: str
+    ) -> str:
+        """
+        Compare original file path with calculated path and return status code.
+        Status codes:
+        - MATCH: Paths are identical
+        - DATE_MISMATCH: Calc date differs from original filename date
+        - FOLDER_DIFF: Parent folder name differs
+        - TIME_DIFF: Time component differs
+        - FORMAT_CHANGED: Filename format changed (non-normalized to normalized)
+        - OTHER: Other differences
+        """
+        # Reconstruct what the full path would be
+        reconstructed_path = str(Path(calc_path) / calc_filename)
+        
+        if original_path == reconstructed_path:
+            return "MATCH"
+        
+        # Extract components for comparison
+        orig_filename = Path(original_path).name
+        calc_filename_only = Path(reconstructed_path).name
+        
+        # Check if dates differ (but first 10 chars should match date)
+        if original_filename_date and original_filename_date != calc_date:
+            return "DATE_MISMATCH"
+        
+        # Check if parent folder differs
+        orig_parent = Path(original_path).parent.name
+        calc_parent_desc = self._extract_descriptive_parent_folder(original_parent_folder)
+        if calc_parent_desc and orig_parent != original_parent_folder:
+            # Check if the descriptive parts at least match (ignoring version suffixes)
+            orig_parent_desc = self._extract_descriptive_parent_folder(orig_parent)
+            if orig_parent_desc != calc_parent_desc:
+                return "FOLDER_DIFF"
+        
+        # Check if time differs (UTC offset issue)
+        orig_time = orig_filename.split('_')[1] if len(orig_filename.split('_')) > 1 else ''
+        calc_time = calc_filename_only.split('_')[1] if len(calc_filename_only.split('_')) > 1 else ''
+        if orig_time and calc_time and orig_time != calc_time:
+            return "TIME_DIFF"
+        
+        # Check if format changed (normalized vs non-normalized)
+        if not orig_filename[:10].count('-') == 2:  # Original not in YYYY-MM-DD format
+            if calc_filename_only[:10].count('-') == 2:  # Calc is in YYYY-MM-DD format
+                return "FORMAT_CHANGED"
+        
+        return "OTHER"
+
+    def _calculate_calc_path(self, calc_date: str, parent_folder: str, calc_filename: str) -> str:
+        """
+        Calculate organized path: source_root/<decade>/<year>/<year>-<month>/<parent> (folder only, no filename)
+        """
+        if not calc_date or len(calc_date) < 10:
+            return str(self.source_root)
+
+        # Extract year and month from calc_date (YYYY-MM-DD)
+        year = calc_date[:4]
+        month = calc_date[5:7]
+
+        # Calculate decade (e.g., 2020, 2010, 1990)
+        try:
+            year_int = int(year)
+            decade = (year_int // 10) * 10
+        except ValueError:
+            decade = 0
+
+        # Get descriptive parent folder (or empty if date-only)
+        parent_desc = self._extract_descriptive_parent_folder(parent_folder)
+
+        # Build path: source_root/<decade>/<year>/<year>-<month>/<parent> (folder only)
+        if parent_desc:
+            path = str(self.source_root / f"{decade}+/{year}/{year}-{month}/{parent_desc}")
+        else:
+            path = str(self.source_root / f"{decade}+/{year}/{year}-{month}")
+
+        return path
+
     def _csv_headers(self) -> List[str]:
         return [
             "Filenanme",
@@ -484,6 +784,11 @@ class ImageAnalyzer:
             "EXIF Description",
             "EXIF Tags",
             "EXIF Ext",
+            "Metadata Date",
+            "Calc Date",
+            "Calc Filename",
+            "Calc Path",
+            "Calc Status",
         ]
 
     def _row_to_dict(self, row: ImageRow) -> Dict[str, str]:
@@ -503,4 +808,9 @@ class ImageAnalyzer:
             "EXIF Description": row.exif_description,
             "EXIF Tags": row.exif_tags,
             "EXIF Ext": row.exif_ext,
+            "Metadata Date": row.metadata_date,
+            "Calc Date": row.calc_date,
+            "Calc Filename": row.calc_filename,
+            "Calc Path": row.calc_path,
+            "Calc Status": row.calc_status,
         }

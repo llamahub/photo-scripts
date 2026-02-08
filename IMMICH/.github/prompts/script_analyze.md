@@ -52,18 +52,20 @@ csv file should contain one row for each file with these columns:
 
 # Calc Date Logic
 
-- general principle is to use the oldest (non 0) date from these EXIF, Sidecar, Filelname, Folder
+- general principle is to use the oldest (non 0) date from these: EXIF, Sidecar, Filelname, Folder
 
 Name Date:
-    CASE: month({Filename Date}}) = month({Folder Date}) THEN {Filename Date}
-    CASE: year({Folder Date}) < year({Filename Date}) THEN {Folder Date}
-    ELSE: {Filename Date}
+    CASE month({Filename Date}) = month({Folder Date}) THEN {Filename Date}
+    CASE year({Folder Date}) < year({Filename Date}) THEN {Folder Date}
+    ELSE {Filename Date}
+
+Metadata Date:
+    CASE {EXIF Date} > 0 then {EXIF Date}
+    ELSE {Sidecar Date}
 
 Calc Date:
-    CASE {EXIF Date} > 0 AND date({EXIF Date} <= date({Name Date}) THEN {EXIF Date}
+    CASE {Metadata Date} > 0 AND date({Metadata Date}) <= date({Name Date}) THEN {Metadata Date}
     ELSE {Name Date}
-
-Calc Filename:
 
 
 log file should include an AUDIT line for each file that matchest the row in the .csv file
