@@ -31,6 +31,8 @@ csv file should contain one row for each file with these columns:
     EXIF Tags - EXIF tags from image file
     EXIF Ext - "true" extension based on actual image file format
     Calc Date - see Calc Date Logic below
+    Calc Offset - UTC offset from Calc Time Used.  If no offset available 
+    Calc Timezone - calculate timezone based on Calc Date and Offset
     Calc Filename - Format = YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT - use Calc Date to replace the date prefix 
     Calc Path - Format = <decade>/<year>/<year>-<month>/<parent event folder>/<filename> - look for an existing folder that matches the Calc Filename
     Calc Description - Combine Sidecar and EXIF descriptions with commma delimitter if they are different - or just use one non-blank description if they are the same or one of them is blank.
@@ -80,3 +82,13 @@ Calc Status:
 Calc Date Used: EXIF, Sidecar, Filename or Folder
 Calc Time Used: EXIF, Sidecar, Filename or Folder
 Meta - Name:  Difference (years, months, days, hours, mins) between Meata Date and Name Date
+
+
+Here are the discrepancies I still see between the current spec and implementation:
+
+Log file path: Spec says ./log/analyze_{timestamp}.log; implementation logs to .log/ (dot-prefixed) via ScriptLogging in analyze.py.
+Extra CLI flags: Implementation adds --fast and --add-true-ext, which are not in the spec (analyze.py).
+CSV columns missing in spec: Implementation outputs Metadata Date, Calc Date Used, Calc Time Used, Meta - Name, Calc Status, and Select, but these aren’t listed in the spec (image_analyzer.py).
+Calc Path semantics: Spec says Calc Path includes the filename and should look for an existing folder that matches Calc Filename; implementation returns a folder-only path and does not search existing folders (image_analyzer.py).
+EXIF Ext behavior: Spec implies “true” extension always; implementation only does true-extension detection when --add-true-ext is set (and it’s skipped in --fast), otherwise it uses the file suffix (analyze.py).
+Calc Offset fallback: Spec says “offset from Calc Time Used” (and is incomplete), but implementation falls back to server timezone when no EXIF/sidecar offset is available (image_analyzer.py).

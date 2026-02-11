@@ -431,6 +431,8 @@ def test_csv_output_includes_calc_columns(tmp_path):
         assert "Meta - Name" in row
         assert "Calc Description" in row
         assert "Calc Tags" in row
+        assert "Calc Offset" in row
+        assert "Calc Timezone" in row
         
         # Verify new Calc columns present
         assert "Calc Date" in row
@@ -440,6 +442,8 @@ def test_csv_output_includes_calc_columns(tmp_path):
         # Verify Calc columns are populated (not empty)
         assert row["Calc Filename"]  # Should have calculated filename
         assert row["Calc Path"]  # Should have calculated path
+        assert row["Calc Offset"]
+        assert row["Calc Timezone"]
 
 
 class _DummyLogger:

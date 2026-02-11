@@ -136,6 +136,8 @@ class ImageRow:
     calc_description: str
     calc_tags: str
     calc_date: str
+    calc_offset: str
+    calc_timezone: str
     calc_filename: str
     calc_path: str
     calc_status: str
@@ -268,6 +270,13 @@ class ImageAnalyzer:
         calc_time_value, calc_time_used = self._calculate_calc_time_used(
             calc_date_used, exif_date, sidecar_date, filename_time
         )
+        calc_offset = self._calculate_calc_offset(calc_time_used, exif_offset, sidecar_offset)
+        if not calc_offset:
+            calc_offset, calc_timezone = self._get_system_timezone()
+            if calc_offset and not calc_timezone:
+                calc_timezone = self._format_timezone(calc_date, calc_offset)
+        else:
+            calc_timezone = self._format_timezone(calc_date, calc_offset)
         meta_name_delta = self._calculate_meta_name_delta(metadata_date, name_date)
         calc_description = self._calculate_calc_description(
             sidecar_description, exif_description
@@ -309,6 +318,8 @@ class ImageAnalyzer:
             calc_description=calc_description,
             calc_tags=calc_tags,
             calc_date=calc_date,
+            calc_offset=calc_offset,
+            calc_timezone=calc_timezone,
             calc_filename=calc_filename,
             calc_path=calc_path,
             calc_status=calc_status,
@@ -688,6 +699,32 @@ class ImageAnalyzer:
             return filename_time, "Filename"
         return "", ""
 
+    def _calculate_calc_offset(
+        self, calc_time_used: str, exif_offset: str, sidecar_offset: str
+    ) -> str:
+        if calc_time_used == "EXIF":
+            return exif_offset or ""
+        if calc_time_used == "Sidecar":
+            return sidecar_offset or ""
+        return ""
+
+    def _get_system_timezone(self) -> tuple[str, str]:
+        local_time = datetime.now().astimezone()
+        offset = local_time.utcoffset()
+        if offset is None:
+            return "", ""
+
+        total_minutes = int(offset.total_seconds() // 60)
+        sign = "+" if total_minutes >= 0 else "-"
+        abs_minutes = abs(total_minutes)
+        hours = abs_minutes // 60
+        minutes = abs_minutes % 60
+        offset_str = f"{sign}{hours:02d}:{minutes:02d}"
+        tz_name = self._format_timezone("", offset_str)
+        if not tz_name:
+            tz_name = local_time.tzname() or ""
+        return offset_str, tz_name
+
     def _parse_datetime_for_delta(self, value: str) -> Optional[datetime]:
         if not value or len(value) < 10:
             return None
@@ -988,6 +1025,8 @@ class ImageAnalyzer:
             "Calc Description",
             "Calc Tags",
             "Calc Date",
+            "Calc Offset",
+            "Calc Timezone",
             "Calc Filename",
             "Calc Path",
             "Calc Status",
@@ -1018,6 +1057,8 @@ class ImageAnalyzer:
             "Calc Description": row.calc_description,
             "Calc Tags": row.calc_tags,
             "Calc Date": row.calc_date,
+            "Calc Offset": row.calc_offset,
+            "Calc Timezone": row.calc_timezone,
             "Calc Filename": row.calc_filename,
             "Calc Path": row.calc_path,
             "Calc Status": row.calc_status,
