@@ -3,7 +3,7 @@
 {
 	"name": "Ubuntu",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "mcr.microsoft.com/devcontainers/base:noble"
+	"image": "mcr.microsoft.com/devcontainers/base:noble",
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
@@ -13,7 +13,11 @@
 
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "uname -a",
-	"postCreateCommand": "./setup-system-deps.sh && if [ -d /mnt/photo_drive_remote ]; then ln -sfn /mnt/photo_drive_remote /mnt/photo_drive; elif [ -d /mnt/photo_drive_local ]; then ln -sfn /mnt/photo_drive_local /mnt/photo_drive; fi",
+	"postCreateCommand": ".devcontainer/post-create.sh",
+	//"postCreateCommand": "./setup-system-deps.sh && ln -sfn /mnt/photo_drive_local /mnt/photo_drive && ln -snf /usr/share/zoneinfo/America/New_York /etc/localtime && echo America/New_York | tee /etc/timezone",
+	"containerEnv": {
+		"TZ": "America/New_York"
+	},
 
 	// Mount Movies folder from host to access media files
 	"mounts": [

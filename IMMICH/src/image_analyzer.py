@@ -133,6 +133,8 @@ class ImageRow:
     calc_date_used: str
     calc_time_used: str
     meta_name_delta: str
+    calc_description: str
+    calc_tags: str
     calc_date: str
     calc_filename: str
     calc_path: str
@@ -267,6 +269,10 @@ class ImageAnalyzer:
             calc_date_used, exif_date, sidecar_date, filename_time
         )
         meta_name_delta = self._calculate_meta_name_delta(metadata_date, name_date)
+        calc_description = self._calculate_calc_description(
+            sidecar_description, exif_description
+        )
+        calc_tags = self._calculate_calc_tags(sidecar_tags, exif_tags)
         calc_filename = self._calculate_calc_filename(
             calc_date,
             calc_time_value,
@@ -300,6 +306,8 @@ class ImageAnalyzer:
             calc_date_used=calc_date_used,
             calc_time_used=calc_time_used,
             meta_name_delta=meta_name_delta,
+            calc_description=calc_description,
+            calc_tags=calc_tags,
             calc_date=calc_date,
             calc_filename=calc_filename,
             calc_path=calc_path,
@@ -744,6 +752,28 @@ class ImageAnalyzer:
 
         return f"{years}:{months}:{days} {hours}:{minutes}"
 
+    def _calculate_calc_description(self, sidecar_desc: str, exif_desc: str) -> str:
+        sidecar_desc = (sidecar_desc or "").strip()
+        exif_desc = (exif_desc or "").strip()
+        if sidecar_desc and exif_desc:
+            if sidecar_desc == exif_desc:
+                return exif_desc
+            return f"{exif_desc}, {sidecar_desc}"
+        return exif_desc or sidecar_desc
+
+    def _calculate_calc_tags(self, sidecar_tags: str, exif_tags: str) -> str:
+        def split_tags(value: str) -> List[str]:
+            return [tag.strip() for tag in (value or "").split(";") if tag.strip()]
+
+        merged: List[str] = []
+        seen = set()
+        for tag in split_tags(exif_tags) + split_tags(sidecar_tags):
+            if tag not in seen:
+                seen.add(tag)
+                merged.append(tag)
+
+        return "; ".join(merged)
+
     def _calculate_name_date(self, folder_date: str, filename_date: str) -> str:
         """
         Calculate Name Date according to spec:
@@ -955,10 +985,13 @@ class ImageAnalyzer:
             "Calc Date Used",
             "Calc Time Used",
             "Meta - Name",
+            "Calc Description",
+            "Calc Tags",
             "Calc Date",
             "Calc Filename",
             "Calc Path",
             "Calc Status",
+            "Select",
         ]
 
     def _row_to_dict(self, row: ImageRow) -> Dict[str, str]:
@@ -982,8 +1015,11 @@ class ImageAnalyzer:
             "Calc Date Used": row.calc_date_used,
             "Calc Time Used": row.calc_time_used,
             "Meta - Name": row.meta_name_delta,
+            "Calc Description": row.calc_description,
+            "Calc Tags": row.calc_tags,
             "Calc Date": row.calc_date,
             "Calc Filename": row.calc_filename,
             "Calc Path": row.calc_path,
             "Calc Status": row.calc_status,
+            "Select": "",
         }

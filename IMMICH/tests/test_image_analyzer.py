@@ -429,6 +429,8 @@ def test_csv_output_includes_calc_columns(tmp_path):
         assert "Calc Date Used" in row
         assert "Calc Time Used" in row
         assert "Meta - Name" in row
+        assert "Calc Description" in row
+        assert "Calc Tags" in row
         
         # Verify new Calc columns present
         assert "Calc Date" in row

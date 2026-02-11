@@ -13,6 +13,10 @@ from pathlib import Path
 # Add COMMON to path for shared utilities
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'COMMON', 'src'))
 
+# Add project source path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / 'src'))
+
 try:
     from common.argument_parser import ScriptArgumentParser, create_standard_arguments, merge_arguments
     from common.logging import ScriptLogging
