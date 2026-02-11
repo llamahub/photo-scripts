@@ -130,6 +130,9 @@ class ImageRow:
     exif_tags: str
     exif_ext: str
     metadata_date: str
+    calc_date_used: str
+    calc_time_used: str
+    meta_name_delta: str
     calc_date: str
     calc_filename: str
     calc_path: str
@@ -252,15 +255,29 @@ class ImageAnalyzer:
         exif_ext = self._get_true_extension(file_path)
 
         # Calculate derived fields
-        name_date = self._calculate_name_date(folder_date, filename_date)
-        metadata_date = self._calculate_metadata_date(exif_date, sidecar_date)
-        calc_date = self._calculate_calc_date(metadata_date, name_date)
+        filename_time = self._extract_filename_time(file_path.name)
+        name_date, name_date_source = self._calculate_name_date_with_source(
+            folder_date, filename_date
+        )
+        metadata_date, metadata_source = self._calculate_metadata_date(exif_date, sidecar_date)
+        calc_date, calc_date_used = self._calculate_calc_date_with_source(
+            metadata_date, metadata_source, name_date, name_date_source
+        )
+        calc_time_value, calc_time_used = self._calculate_calc_time_used(
+            calc_date_used, exif_date, sidecar_date, filename_time
+        )
+        meta_name_delta = self._calculate_meta_name_delta(metadata_date, name_date)
         calc_filename = self._calculate_calc_filename(
-            calc_date, exif_date, image_exif, file_path.parent.name, file_path.stem, exif_ext
+            calc_date,
+            calc_time_value,
+            image_exif,
+            file_path.parent.name,
+            file_path.stem,
+            exif_ext,
         )
         calc_path = self._calculate_calc_path(calc_date, file_path.parent.name, calc_filename)
         calc_status = self._calculate_calc_status(
-            str(file_path), calc_path, calc_filename, calc_date, file_path.parent.name, filename_date
+            str(file_path), calc_path, calc_filename
         )
 
         return ImageRow(
@@ -280,6 +297,9 @@ class ImageAnalyzer:
             exif_tags=exif_tags,
             exif_ext=exif_ext,
             metadata_date=metadata_date,
+            calc_date_used=calc_date_used,
+            calc_time_used=calc_time_used,
+            meta_name_delta=meta_name_delta,
             calc_date=calc_date,
             calc_filename=calc_filename,
             calc_path=calc_path,
@@ -566,7 +586,7 @@ class ImageAnalyzer:
             return value
         return value[:10].replace(":", "-") + value[10:]
 
-    def _calculate_metadata_date(self, exif_date: str, sidecar_date: str) -> str:
+    def _calculate_metadata_date(self, exif_date: str, sidecar_date: str) -> tuple[str, str]:
         """
         Calculate Metadata Date:
         IF EXIF Date is valid THEN return EXIF Date
@@ -574,13 +594,155 @@ class ImageAnalyzer:
         """
         exif_ym = self._get_year_month(exif_date)
         if exif_ym:
-            return self._normalize_date_separators(exif_date or "")
+            return self._normalize_date_separators(exif_date or ""), "EXIF"
 
         sidecar_ym = self._get_year_month(sidecar_date)
         if sidecar_ym:
-            return self._normalize_date_separators(sidecar_date or "")
+            return self._normalize_date_separators(sidecar_date or ""), "Sidecar"
+
+        return "", ""
+
+    def _calculate_name_date_with_source(
+        self, folder_date: str, filename_date: str
+    ) -> tuple[str, str]:
+        name_date = self._calculate_name_date(folder_date, filename_date)
+        if not name_date:
+            return "", ""
+
+        filename_ym = self._get_year_month(filename_date)
+        folder_ym = self._get_year_month(folder_date)
+
+        if not folder_ym and filename_ym:
+            return name_date, "Filename"
+        if not filename_ym and folder_ym:
+            return name_date, "Folder"
+        if filename_ym and folder_ym:
+            if name_date == filename_date:
+                return name_date, "Filename"
+            return name_date, "Folder"
+
+        return name_date, ""
+
+    def _calculate_calc_date_with_source(
+        self,
+        metadata_date: str,
+        metadata_source: str,
+        name_date: str,
+        name_source: str,
+    ) -> tuple[str, str]:
+        calc_date = self._calculate_calc_date(metadata_date, name_date)
+        if calc_date and calc_date == metadata_date:
+            return calc_date, metadata_source
+        if calc_date and calc_date == name_date:
+            return calc_date, name_source
+        return calc_date, ""
+
+    def _extract_time_from_datetime(self, value: str) -> str:
+        if not value or len(value) < 16:
+            return ""
+        hour = value[11:13] if value[11:13].isdigit() else ""
+        minute = value[14:16] if value[14:16].isdigit() else ""
+        if not hour or not minute:
+            return ""
+        return f"{hour}{minute}"
+
+    def _extract_filename_time(self, filename: str) -> str:
+        stem = Path(filename).stem
+        patterns = [
+            r"\d{4}-\d{2}-\d{2}[_-](\d{4})",
+            r"\d{8}[_-](\d{4})",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, stem)
+            if match:
+                time_value = match.group(1)
+                if time_value == "0000":
+                    return ""
+                return time_value
 
         return ""
+
+    def _calculate_calc_time_used(
+        self,
+        calc_date_used: str,
+        exif_date: str,
+        sidecar_date: str,
+        filename_time: str,
+    ) -> tuple[str, str]:
+        if calc_date_used == "EXIF":
+            time_value = self._extract_time_from_datetime(exif_date)
+            return time_value, "EXIF" if time_value else ""
+        if calc_date_used == "Sidecar":
+            time_value = self._extract_time_from_datetime(sidecar_date)
+            return time_value, "Sidecar" if time_value else ""
+        if calc_date_used == "Filename" and filename_time:
+            return filename_time, "Filename"
+        return "", ""
+
+    def _parse_datetime_for_delta(self, value: str) -> Optional[datetime]:
+        if not value or len(value) < 10:
+            return None
+        date_part = value[:10].replace(":", "-")
+        if date_part[5:7] == "00" or date_part[8:10] == "00":
+            return None
+
+        time_part = "00:00:00"
+        if len(value) >= 19:
+            time_part = value[11:19]
+        elif len(value) >= 16:
+            time_part = f"{value[11:16]}:00"
+
+        try:
+            return datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+
+    def _add_months(self, dt: datetime, months: int) -> datetime:
+        year = dt.year + (dt.month - 1 + months) // 12
+        month = (dt.month - 1 + months) % 12 + 1
+        day = min(dt.day, self._days_in_month(year, month))
+        return dt.replace(year=year, month=month, day=day)
+
+    def _days_in_month(self, year: int, month: int) -> int:
+        if month == 12:
+            next_month = datetime(year + 1, 1, 1)
+        else:
+            next_month = datetime(year, month + 1, 1)
+        return (next_month - datetime(year, month, 1)).days
+
+    def _calculate_meta_name_delta(self, metadata_date: str, name_date: str) -> str:
+        start = self._parse_datetime_for_delta(metadata_date)
+        end = self._parse_datetime_for_delta(name_date)
+        if not start or not end:
+            return ""
+
+        if start > end:
+            start, end = end, start
+
+        years = end.year - start.year
+        temp = self._add_months(start, years * 12)
+        if temp > end:
+            years -= 1
+            temp = self._add_months(start, years * 12)
+
+        months = end.month - temp.month
+        if months < 0:
+            months += 12
+            years -= 1
+            temp = self._add_months(start, years * 12)
+
+        temp = self._add_months(temp, months)
+        if temp > end:
+            months -= 1
+            temp = self._add_months(self._add_months(start, years * 12), months)
+
+        delta = end - temp
+        days = delta.days
+        hours = delta.seconds // 3600
+        minutes = (delta.seconds % 3600) // 60
+
+        return f"{years}:{months}:{days} {hours}:{minutes}"
 
     def _calculate_name_date(self, folder_date: str, filename_date: str) -> str:
         """
@@ -653,7 +815,13 @@ class ImageAnalyzer:
         return name_date or ""
 
     def _calculate_calc_filename(
-        self, calc_date: str, exif_date: str, image_exif: Dict, parent_folder: str, original_filename: str, ext: str
+        self,
+        calc_date: str,
+        time_part: str,
+        image_exif: Dict,
+        parent_folder: str,
+        original_filename: str,
+        ext: str,
     ) -> str:
         """
         Calculate normalized filename: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
@@ -664,12 +832,8 @@ class ImageAnalyzer:
         # Extract date part from calc_date (YYYY-MM-DD)
         date_part = calc_date[:10] if len(calc_date) >= 10 else calc_date
         
-        # Extract time part from exif_date (HH:MM or 00:00)
-        time_part = "0000"
-        if exif_date and len(exif_date) >= 16:  # Has time component HH:MM
-            hour = exif_date[11:13] if exif_date[11:13].isdigit() else "00"
-            minute = exif_date[14:16] if exif_date[14:16].isdigit() else "00"
-            time_part = f"{hour}{minute}"
+        # Extract time part (HHMM) from the chosen source
+        time_part = time_part or "0000"
 
         # Get dimensions
         dimensions = self._get_image_dimensions(image_exif)
@@ -689,24 +853,27 @@ class ImageAnalyzer:
         return filename
 
     def _calculate_calc_status(
-        self, original_path: str, calc_path: str, calc_filename: str, calc_date: str, 
-        original_parent_folder: str, original_filename_date: str
+        self, original_path: str, calc_path: str, calc_filename: str
     ) -> str:
         """
         Compare original file path with calculated path and return status code.
         Status codes:
         - MATCH: Paths are identical
-        - DATE_MISMATCH: Calc date differs from original filename date
-        - FOLDER_DIFF: Parent folder name differs
-        - TIME_DIFF: Time component differs
-        - FORMAT_CHANGED: Filename format changed (non-normalized to normalized)
-        - OTHER: Other differences
+        - RENAME: Same path but filename differs
+        - MOVE: Different path
         """
         # Reconstruct what the full path would be
         reconstructed_path = str(Path(calc_path) / calc_filename)
         
         if original_path == reconstructed_path:
             return "MATCH"
+
+        orig_parent = str(Path(original_path).parent)
+        calc_parent = str(Path(calc_path))
+        if orig_parent == calc_parent:
+            return "RENAME"
+
+        return "MOVE"
         
         # Extract components for comparison
         orig_filename = Path(original_path).name
@@ -785,6 +952,9 @@ class ImageAnalyzer:
             "EXIF Tags",
             "EXIF Ext",
             "Metadata Date",
+            "Calc Date Used",
+            "Calc Time Used",
+            "Meta - Name",
             "Calc Date",
             "Calc Filename",
             "Calc Path",
@@ -809,6 +979,9 @@ class ImageAnalyzer:
             "EXIF Tags": row.exif_tags,
             "EXIF Ext": row.exif_ext,
             "Metadata Date": row.metadata_date,
+            "Calc Date Used": row.calc_date_used,
+            "Calc Time Used": row.calc_time_used,
+            "Meta - Name": row.meta_name_delta,
             "Calc Date": row.calc_date,
             "Calc Filename": row.calc_filename,
             "Calc Path": row.calc_path,

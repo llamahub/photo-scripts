@@ -32,7 +32,9 @@ csv file should contain one row for each file with these columns:
     EXIF Ext - "true" extension based on actual image file format
     Calc Date - see Calc Date Logic below
     Calc Filename - Format = YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT - use Calc Date to replace the date prefix 
-    Calc Path - Format = <decade>/<year>/<year>-<month>/<parent event folder>/<filename> - look for an existing folder that matches the Calc Filename 
+    Calc Path - Format = <decade>/<year>/<year>-<month>/<parent event folder>/<filename> - look for an existing folder that matches the Calc Filename
+    Calc Description - Combine Sidecar and EXIF descriptions with commma delimitter if they are different - or just use one non-blank description if they are the same or one of them is blank.
+    Calc Tags - Consolidate to include all tags from both EXIF and Sidecar
 
 ## EXIF Date Priority:
  
@@ -69,3 +71,12 @@ Calc Date:
 
 
 log file should include an AUDIT line for each file that matchest the row in the .csv file
+
+Calc Status:
+    MATCH - no change in file/path
+    RENAME - same path but filename has changed
+    MOVE - different path
+
+Calc Date Used: EXIF, Sidecar, Filename or Folder
+Calc Time Used: EXIF, Sidecar, Filename or Folder
+Meta - Name:  Difference (years, months, days, hours, mins) between Meata Date and Name Date

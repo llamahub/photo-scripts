@@ -50,6 +50,15 @@ def test_extract_folder_date_variants():
     assert analyzer._extract_folder_date("no-date") == ""
 
 
+def test_extract_filename_time():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._extract_filename_time("2024-10-15_1430_photo.jpg") == "1430"
+    assert analyzer._extract_filename_time("20241015_1430_photo.jpg") == "1430"
+    assert analyzer._extract_filename_time("20241015-1430_photo.jpg") == "1430"
+    assert analyzer._extract_filename_time("0000-00-00_0000_photo.jpg") == ""
+    assert analyzer._extract_filename_time("photo.jpg") == ""
+
+
 def test_get_first_exif_value_list():
     analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
     exif = {"Keywords": ["A", "B"]}
@@ -271,14 +280,42 @@ def test_calculate_calc_date():
     assert analyzer._calculate_calc_date("2011:05:28 13:59:34", "2011-06-01") == "2011-05-28 13:59:34"
 
 
+def test_calculate_calc_time_used():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._calculate_calc_time_used(
+        "EXIF", "2011:05:28 13:59:34", "", ""
+    ) == ("1359", "EXIF")
+    assert analyzer._calculate_calc_time_used(
+        "Sidecar", "", "2011:05:28 07:05:34", ""
+    ) == ("0705", "Sidecar")
+    assert analyzer._calculate_calc_time_used(
+        "Filename", "", "", "1234"
+    ) == ("1234", "Filename")
+    assert analyzer._calculate_calc_time_used(
+        "Folder", "", "", "1234"
+    ) == ("", "")
+
+
+def test_calculate_meta_name_delta():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._calculate_meta_name_delta("2011-05-28 13:59:34", "2011-06-01") == "0:0:3 10:0"
+    assert analyzer._calculate_meta_name_delta("2011-05-00", "2011-06-01") == ""
+
+
 def test_calculate_metadata_date():
     analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
     # Prefer EXIF when valid
-    assert analyzer._calculate_metadata_date("2011:05:28 13:59:34", "2011-06-01") == "2011-05-28 13:59:34"
+    assert analyzer._calculate_metadata_date("2011:05:28 13:59:34", "2011-06-01") == (
+        "2011-05-28 13:59:34",
+        "EXIF",
+    )
     # Fall back to sidecar when EXIF invalid
-    assert analyzer._calculate_metadata_date("1900-01-01", "2011:06:02 09:00:00") == "2011-06-02 09:00:00"
+    assert analyzer._calculate_metadata_date("1900-01-01", "2011:06:02 09:00:00") == (
+        "2011-06-02 09:00:00",
+        "Sidecar",
+    )
     # Both invalid
-    assert analyzer._calculate_metadata_date("", "") == ""
+    assert analyzer._calculate_metadata_date("", "") == ("", "")
     # Name date placeholder day=00: prefer EXIF when same month
     assert analyzer._calculate_calc_date("2008-08-12", "2008-08-00") == "2008-08-12"
     # Name date placeholder day=00: keep Name date when EXIF is much later
@@ -289,21 +326,19 @@ def test_calculate_calc_filename():
     analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
     # Full data available
     calc_date = "2024-10-15"
-    exif_date = "2024-10-15 14:30:45"
+    time_part = "1430"
     exif = {"ImageWidth": 1920, "ImageHeight": 1080}
-    result = analyzer._calculate_calc_filename(calc_date, exif_date, exif, "MyEvent", "IMG_4120", "jpg")
+    result = analyzer._calculate_calc_filename(calc_date, time_part, exif, "MyEvent", "IMG_4120", "jpg")
     assert result.startswith("2024-10-15_1430_1920x1080_MyEvent_")
     assert result.endswith(".jpg")
-    # Missing time component in exif_date
-    exif_date = "2024-10-15"
-    result = analyzer._calculate_calc_filename(calc_date, exif_date, exif, "MyEvent", "IMG_4120", "jpg")
+    # Missing time component
+    result = analyzer._calculate_calc_filename(calc_date, "", exif, "MyEvent", "IMG_4120", "jpg")
     assert "_0000_" in result  # Should use 0000 for time
     # Date-only parent (should be skipped)
-    exif_date = "2024-10-15 14:30:45"
-    result = analyzer._calculate_calc_filename(calc_date, exif_date, exif, "2024-10", "IMG_4120", "jpg")
+    result = analyzer._calculate_calc_filename(calc_date, time_part, exif, "2024-10", "IMG_4120", "jpg")
     assert "2024-10" not in result or result.count("2024-10") == 1  # Only in date prefix
     # Missing dimensions
-    result = analyzer._calculate_calc_filename(calc_date, exif_date, {}, "MyEvent", "IMG_4120", "jpg")
+    result = analyzer._calculate_calc_filename(calc_date, time_part, {}, "MyEvent", "IMG_4120", "jpg")
     assert "_0x0_" in result
 
 
@@ -318,6 +353,25 @@ def test_calculate_calc_path():
     # Different decade
     result = analyzer._calculate_calc_path("1995-05-20", "Event", "1995-05-20_1200_800x600_Event_photo.jpg")
     assert result == "/tmp/1990+/1995/1995-05/Event"
+
+
+def test_calculate_calc_status():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._calculate_calc_status(
+        "/root/2024/2024-10/img.jpg",
+        "/root/2024/2024-10",
+        "img.jpg",
+    ) == "MATCH"
+    assert analyzer._calculate_calc_status(
+        "/root/2024/2024-10/img.jpg",
+        "/root/2024/2024-10",
+        "img2.jpg",
+    ) == "RENAME"
+    assert analyzer._calculate_calc_status(
+        "/root/2024/2024-10/img.jpg",
+        "/root/2024/2024-11",
+        "img.jpg",
+    ) == "MOVE"
 
 
 def test_calculate_calc_filename_with_real_exif():
@@ -339,9 +393,9 @@ def test_calculate_calc_filename_with_real_exif():
         exif = {"ImageWidth": 1920, "ImageHeight": 1080}
         
         calc_date = "2024-10-15"
-        exif_date = "2024-10-15 14:30:45"
+        time_part = "1430"
         result = analyzer._calculate_calc_filename(
-            calc_date, exif_date, exif, "Vacation", test_image_path.stem, "jpg"
+            calc_date, time_part, exif, "Vacation", test_image_path.stem, "jpg"
         )
         
         # Verify format: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
@@ -372,6 +426,9 @@ def test_csv_output_includes_calc_columns(tmp_path):
         assert "EXIF Date" in row
         assert "EXIF Ext" in row
         assert "Metadata Date" in row
+        assert "Calc Date Used" in row
+        assert "Calc Time Used" in row
+        assert "Meta - Name" in row
         
         # Verify new Calc columns present
         assert "Calc Date" in row
