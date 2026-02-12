@@ -22,10 +22,11 @@ SIDECAR_EXTENSIONS = {".xmp", ".XMP", ".json", ".JSON", ".disabled",".possible",
 class ImageUpdater:
     """Apply updates from analyze CSV output to image files."""
 
-    def __init__(self, csv_path: str, logger, dry_run: bool = False) -> None:
+    def __init__(self, csv_path: str, logger, dry_run: bool = False, all_rows: bool = False) -> None:
         self.csv_path = Path(csv_path)
         self.logger = logger
         self.dry_run = dry_run
+        self.all_rows = all_rows
         self.stats = {
             "rows_total": 0,
             "rows_selected": 0,
@@ -48,11 +49,13 @@ class ImageUpdater:
 
         with self.csv_path.open(newline="", encoding="utf-8") as csv_file:
             reader = csv.DictReader(csv_file)
-            select_col = self._select_column(reader.fieldnames or [])
+            select_col = None
+            if not self.all_rows:
+                select_col = self._select_column(reader.fieldnames or [])
 
             for row in reader:
                 self.stats["rows_total"] += 1
-                if not self._is_selected(row.get(select_col, "")):
+                if not self.all_rows and not self._is_selected(row.get(select_col, "")):
                     continue
 
                 self.stats["rows_selected"] += 1

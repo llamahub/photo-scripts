@@ -50,6 +50,11 @@ SCRIPT_ARGUMENTS = {
         "action": "store_true",
         "help": "Use the latest analyze output CSV from .log",
     },
+    "all": {
+        "flag": "--all",
+        "action": "store_true",
+        "help": "Process all rows regardless of Select column value",
+    },
 }
 
 ARGUMENTS = merge_arguments(create_standard_arguments(), SCRIPT_ARGUMENTS)
@@ -97,6 +102,7 @@ def main() -> int:
     config_map = {
         "input": "Input CSV",
         "last": "Use latest CSV",
+        "all": "Process all rows",
         "dry_run": "Dry run",
     }
     for arg_key, display_label in config_map.items():
@@ -111,6 +117,7 @@ def main() -> int:
             csv_path=input_value,
             logger=logger,
             dry_run=resolved_args.get("dry_run", False),
+            all_rows=resolved_args.get("all", False),
         )
         stats = updater.process()
     except Exception as exc:
