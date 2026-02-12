@@ -360,18 +360,24 @@ def run(ctx, script=None, args="", env="dev"):
             scripts_dir = Path("scripts")
             scripts_dir.mkdir(exist_ok=True)
         else:
-            # Fallback: try to run script directly
-            script_path = Path("scripts") / f"{script}.py"
-            if script_path.exists():
-                print(f"Running script '{script}' directly with args: {args}")
-                cmd = f"{python_path} {script_path}"
-                if args:
-                    cmd += f" {args}"
-                ctx.run(cmd, pty=True)
-                return
+            # Fallback: try to run script directly from local or COMMON scripts
+            local_script_path = Path("scripts") / f"{script}.py"
+            common_script_path = Path(__file__).parent / "scripts" / f"{script}.py"
+            
+            if local_script_path.exists():
+                script_path = local_script_path
+            elif common_script_path.exists():
+                script_path = common_script_path
             else:
-                print(f"Error: Script '{script}.py' not found in scripts/ directory")
+                print(f"Error: Script '{script}.py' not found in scripts/ or ../COMMON/scripts/")
                 return
+            
+            print(f"Running script '{script}' with args: {args}")
+            cmd = f"{python_path} {script_path}"
+            if args:
+                cmd += f" {args}"
+            ctx.run(cmd, pty=True)
+            return
         
         # Run specific script through run.py
         print(f"Running script '{script}' with args: {args}")
@@ -388,18 +394,22 @@ def run(ctx, script=None, args="", env="dev"):
         elif Path("scripts/run.py").exists():
             ctx.run(f"{python_path} scripts/run.py", pty=True)
         else:
-            # If no main script, show available scripts
+            # If no main script, show available scripts from both locations
             print("No main script found. Available scripts:")
-            scripts_dir = Path("scripts")
-            if scripts_dir.exists():
-                available_scripts = [f.stem for f in scripts_dir.glob("*.py") if f.name != "run.py"]
-                if available_scripts:
-                    print(f"  {', '.join(sorted(available_scripts))}")
-                    print(f"\nUse: invoke run --script <script_name> --args '<arguments>'")
-                else:
-                    print("  No scripts found in scripts/ directory")
+            local_scripts_dir = Path("scripts")
+            common_scripts_dir = Path(__file__).parent / "scripts"
+            
+            available_scripts = set()
+            if local_scripts_dir.exists():
+                available_scripts.update([f.stem for f in local_scripts_dir.glob("*.py") if f.name != "run.py"])
+            if common_scripts_dir.exists():
+                available_scripts.update([f.stem for f in common_scripts_dir.glob("*.py") if f.name != "run.py"])
+            
+            if available_scripts:
+                print(f"  {', '.join(sorted(available_scripts))}")
+                print(f"\nUse: invoke run --script <script_name> --args '<arguments>'")
             else:
-                print("  No scripts/ directory found")
+                print("  No scripts found")
 
 
 @task
@@ -453,30 +463,43 @@ def shell(ctx):
 
 @task
 def scripts(ctx):
-    """List available scripts."""
+    """List available scripts from local and COMMON directories."""
     task_header("scripts", "List available scripts", ctx)
-    scripts_dir = Path("scripts")
     
-    if not scripts_dir.exists():
-        print("No scripts directory found")
-        return
+    local_scripts_dir = Path("scripts")
+    common_scripts_dir = Path(__file__).parent / "scripts"
     
-    available_scripts = [f.stem for f in scripts_dir.glob("*.py") if f.name != "run.py"]
-    if not available_scripts:
+    # Collect scripts from both directories
+    script_dict = {}  # {script_name: script_path}
+    
+    # First add local scripts (they take precedence)
+    if local_scripts_dir.exists():
+        for f in local_scripts_dir.glob("*.py"):
+            if f.name != "run.py":
+                script_dict[f.stem] = f
+    
+    # Then add COMMON scripts (only if not already in local)
+    if common_scripts_dir.exists():
+        for f in common_scripts_dir.glob("*.py"):
+            if f.name != "run.py" and f.stem not in script_dict:
+                script_dict[f.stem] = f
+    
+    if not script_dict:
         print("No scripts found")
         return
     
     print("Available Scripts:")
-    for script in sorted(available_scripts):
-        script_path = scripts_dir / f"{script}.py"
+    for script_name in sorted(script_dict.keys()):
+        script_path = script_dict[script_name]
+        location = "(local)" if script_path.parent.name == "scripts" and script_path.parent.is_relative_to(Path.cwd().parent) is False else "(COMMON)"
         
         # Get a brief description from the file
         description = _get_script_description(script_path)
         
         if description:
-            print(f"  {script:<15} {description}")
+            print(f"  {script_name:<15} {description}")
         else:
-            print(f"  {script}")
+            print(f"  {script_name}")
     
     print(f"\nUsage:")
     print(f"  inv r -n <script> -a '<args>'")

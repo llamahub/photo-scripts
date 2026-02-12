@@ -16,7 +16,7 @@ def main():
     # Check if we have at least one argument (the script name)
     if len(sys.argv) < 2:
         print("Usage: run.py <script_name> [script_args...]", file=sys.stderr)
-        print("\nRun scripts from the current project's scripts directory", file=sys.stderr)
+        print("\nRun scripts from the current project's scripts directory or COMMON/scripts", file=sys.stderr)
         print("\nExamples:", file=sys.stderr)
         print("  run.py sample --help", file=sys.stderr)
         print("  run.py sample /path/to/photos", file=sys.stderr)
@@ -27,14 +27,28 @@ def main():
     script_name = sys.argv[1]
     script_args = sys.argv[2:]
     
-    # Get the scripts directory (in the current working directory)
-    scripts_dir = Path.cwd() / "scripts"
-    script_path = scripts_dir / f"{script_name}.py"
+    # Get the scripts directories (local and COMMON)
+    local_scripts_dir = Path.cwd() / "scripts"
+    common_scripts_dir = Path(__file__).parent
+    
+    # Look for the script in local directory first, then COMMON
+    script_path = None
+    if (local_scripts_dir / f"{script_name}.py").exists():
+        script_path = local_scripts_dir / f"{script_name}.py"
+    elif (common_scripts_dir / f"{script_name}.py").exists():
+        script_path = common_scripts_dir / f"{script_name}.py"
     
     # Check if the script exists
-    if not script_path.exists():
-        print(f"Error: Script '{script_name}.py' not found in {scripts_dir}", file=sys.stderr)
-        available_scripts = [f.stem for f in scripts_dir.glob("*.py") if f.name != "run.py"]
+    if script_path is None or not script_path.exists():
+        print(f"Error: Script '{script_name}.py' not found in scripts or COMMON/scripts", file=sys.stderr)
+        
+        # Show available scripts from both directories
+        available_scripts = set()
+        if local_scripts_dir.exists():
+            available_scripts.update([f.stem for f in local_scripts_dir.glob("*.py") if f.name != "run.py"])
+        if common_scripts_dir.exists():
+            available_scripts.update([f.stem for f in common_scripts_dir.glob("*.py") if f.name != "run.py"])
+        
         if available_scripts:
             print(f"Available scripts: {', '.join(sorted(available_scripts))}", file=sys.stderr)
         return 1
