@@ -270,7 +270,12 @@ class ImageAnalyzer:
         calc_time_value, calc_time_used = self._calculate_calc_time_used(
             calc_date_used, exif_date, sidecar_date, filename_time
         )
-        calc_offset = self._calculate_calc_offset(calc_time_used, exif_offset, sidecar_offset)
+        calc_offset = self._calculate_calc_offset(
+            calc_time_used,
+            calc_date_used,
+            exif_offset,
+            sidecar_offset,
+        )
         if not calc_offset:
             calc_offset, calc_timezone = self._get_system_timezone()
             if calc_offset and not calc_timezone:
@@ -536,6 +541,9 @@ class ImageAnalyzer:
         """Check if folder name contains only date-like patterns and no descriptive text."""
         if not folder_name:
             return True
+        # Treat pure date folders with optional numeric suffixes as date-only.
+        if re.match(r"^\d{4}([_-]\d{2}([_-]\d{2})?)?(_\d+)?$", folder_name):
+            return True
         # Remove all date-like patterns (YYYY, YYYY-MM, YYYY-MM-DD, with underscores/hyphens)
         cleaned = re.sub(r"[_\-]?(\d{4}(?:[_\-]\d{2})?(?:[_\-]\d{2})?)", "", folder_name)
         cleaned = cleaned.strip("_-").strip()
@@ -691,7 +699,11 @@ class ImageAnalyzer:
     ) -> tuple[str, str]:
         if calc_date_used == "EXIF":
             time_value = self._extract_time_from_datetime(exif_date)
-            return time_value, "EXIF" if time_value else ""
+            if time_value and time_value != "0000":
+                return time_value, "EXIF"
+            if filename_time:
+                return filename_time, "Filename"
+            return "", ""
         if calc_date_used == "Sidecar":
             time_value = self._extract_time_from_datetime(sidecar_date)
             return time_value, "Sidecar" if time_value else ""
@@ -700,12 +712,18 @@ class ImageAnalyzer:
         return "", ""
 
     def _calculate_calc_offset(
-        self, calc_time_used: str, exif_offset: str, sidecar_offset: str
+        self,
+        calc_time_used: str,
+        calc_date_used: str,
+        exif_offset: str,
+        sidecar_offset: str,
     ) -> str:
         if calc_time_used == "EXIF":
             return exif_offset or ""
         if calc_time_used == "Sidecar":
             return sidecar_offset or ""
+        if calc_time_used == "Filename" and calc_date_used == "EXIF":
+            return exif_offset or ""
         return ""
 
     def _get_system_timezone(self) -> tuple[str, str]:

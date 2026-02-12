@@ -181,6 +181,8 @@ def test_is_date_only():
     assert analyzer._is_date_only("2024-10") is True
     assert analyzer._is_date_only("2024") is True
     assert analyzer._is_date_only("2024_10_15") is True
+    assert analyzer._is_date_only("2024-10-15_01") is True
+    assert analyzer._is_date_only("2024_10_15_02") is True
     assert analyzer._is_date_only("2024-10-Vacation") is False
     assert analyzer._is_date_only("2024-10-15_Event") is False
     assert analyzer._is_date_only("Vacation") is False
@@ -191,6 +193,7 @@ def test_extract_descriptive_parent_folder():
     analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
     assert analyzer._extract_descriptive_parent_folder("2024-10") == ""
     assert analyzer._extract_descriptive_parent_folder("2024-10-15") == ""
+    assert analyzer._extract_descriptive_parent_folder("2024-10-15_01") == ""
     assert analyzer._extract_descriptive_parent_folder("2024-10-Vacation") == "2024-10-Vacation"
     assert analyzer._extract_descriptive_parent_folder("MyEvent") == "MyEvent"
     assert analyzer._extract_descriptive_parent_folder("") == ""
@@ -286,6 +289,9 @@ def test_calculate_calc_time_used():
         "EXIF", "2011:05:28 13:59:34", "", ""
     ) == ("1359", "EXIF")
     assert analyzer._calculate_calc_time_used(
+        "EXIF", "2011:05:28 00:00:00", "", "2359"
+    ) == ("2359", "Filename")
+    assert analyzer._calculate_calc_time_used(
         "Sidecar", "", "2011:05:28 07:05:34", ""
     ) == ("0705", "Sidecar")
     assert analyzer._calculate_calc_time_used(
@@ -294,6 +300,13 @@ def test_calculate_calc_time_used():
     assert analyzer._calculate_calc_time_used(
         "Folder", "", "", "1234"
     ) == ("", "")
+
+
+def test_calculate_calc_offset_prefers_exif_when_time_from_filename():
+    analyzer = ImageAnalyzer("/tmp", logger=_DummyLogger())
+    assert analyzer._calculate_calc_offset(
+        "Filename", "EXIF", "+01:00", ""
+    ) == "+01:00"
 
 
 def test_calculate_meta_name_delta():

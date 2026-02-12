@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 SELECTED_VALUES = {"y", "yes", "true"}
 HEIC_EXTENSIONS = {".heic", ".heif"}
+SIDECAR_EXTENSIONS = {".xmp", ".XMP", ".json", ".JSON", ".disabled",".possible", ".unknown"}
 
 
 class ImageUpdater:
@@ -32,6 +33,9 @@ class ImageUpdater:
             "exif_skipped": 0,
             "renamed": 0,
             "moved": 0,
+            "sidecar_renamed": 0,
+            "sidecar_moved": 0,
+            "sidecar_errors": 0,
             "errors": 0,
         }
         self.exiftool_available = shutil.which("exiftool") is not None
@@ -90,9 +94,9 @@ class ImageUpdater:
 
         calc_description = row.get("Calc Description", "")
         calc_tags = self._split_tags(row.get("Calc Tags", ""))
-        exif_datetime = self._format_exif_datetime(
-            row.get("Calc Date", ""), row.get("Calc Filename", "")
-        )
+        calc_date = row.get("Calc Date", "")
+        calc_filename = row.get("Calc Filename", "")
+        exif_datetime = self._format_exif_datetime(calc_date, calc_filename)
         calc_offset = self._resolve_calc_offset(row, exif_datetime)
 
         exif_status = self._update_exif(
@@ -109,11 +113,32 @@ class ImageUpdater:
         else:
             self.stats["errors"] += 1
 
+        calc_status = row.get("Calc Status", "")
+        calc_path = row.get("Calc Path", "")
+        
+        # If EXIF was updated and the original calc_path had a placeholder date (YYYY-00),
+        # recalculate the path based on the new EXIF date to ensure proper organization
+        if exif_status == "updated" and calc_date and self._is_placeholder_date(calc_date):
+            calc_path = self._recalculate_path_after_exif_update(
+                calc_path, exif_datetime, row.get("Filenanme", "")
+            )
+        
+        calc_filename = self._normalize_calc_filename(
+            calc_filename,
+            calc_date,
+            calc_path,
+            exif_datetime,
+        )
+        target_path = self._resolve_target_path(file_path, calc_status, calc_path, calc_filename)
+
+        if target_path:
+            self._move_sidecars(file_path, target_path)
+
         file_status = self._apply_file_action(
             file_path,
-            row.get("Calc Status", ""),
-            row.get("Calc Path", ""),
-            row.get("Calc Filename", ""),
+            calc_status,
+            calc_path,
+            calc_filename,
         )
         if file_status == "renamed":
             self.stats["renamed"] += 1
@@ -128,6 +153,148 @@ class ImageUpdater:
 
     def _split_tags(self, value: str) -> List[str]:
         return [tag.strip() for tag in (value or "").split(";") if tag.strip()]
+
+    def _is_placeholder_date(self, date_str: str) -> bool:
+        """Check if date has placeholder month (00) or day (00)."""
+        if not date_str or len(date_str) < 10:
+            return False
+        # Format is YYYY-MM-DD or YYYY:MM:DD
+        return date_str[5:7] == "00" or date_str[8:10] == "00"
+
+    def _recalculate_path_after_exif_update(
+        self, original_calc_path: str, new_exif_datetime: str, file_path: str
+    ) -> str:
+        """
+        Recalculate the organized folder path based on the new EXIF date.
+        
+        Original calc_path was based on placeholder date (YYYY-00-DD or YYYY-MM-00).
+        Now that we've updated EXIF to a real date, we need to update the path
+        to use the new year-month.
+        
+        Path structure: .../DECADE/YEAR/YEAR-MONTH/PARENT_FOLDER
+        Example: /2000+/2009/2009-01/2009 June and July
+        """
+        if not new_exif_datetime or not original_calc_path:
+            return original_calc_path
+
+        # Extract year and month from new EXIF date (format: YYYY:MM:DD HH:MM:SS)
+        date_part = new_exif_datetime.replace(":", "-")[:10]  # Convert to YYYY-MM-DD
+        if len(date_part) < 7:
+            return original_calc_path
+
+        year = date_part[:4]
+        month = date_part[5:7]
+        
+        # Calculate decade (e.g., 2020, 2010, 1990)
+        try:
+            year_int = int(year)
+            decade = (year_int // 10) * 10
+            decade_str = f"{decade}+"
+        except ValueError:
+            return original_calc_path
+
+        # Parse the original path to extract components
+        # Typical structure: /root/DECADE+/YEAR/YEAR-MONTH/PARENT_FOLDER
+        path_parts = Path(original_calc_path).parts
+        if len(path_parts) < 2:
+            return original_calc_path
+
+        # Find the decade part (contains "+")
+        decade_idx = -1
+        for i, part in enumerate(path_parts):
+            if "+" in part:
+                decade_idx = i
+                break
+
+        if decade_idx < 0:
+            return original_calc_path
+
+        # Rebuild path with new year-month
+        # Keep everything up to and including decade, then add year and new year-month
+        new_parts = list(path_parts[: decade_idx + 1])  # Up to and including decade+
+        new_parts.append(year)  # Add year folder
+        new_parts.append(f"{year}-{month}")  # Add new year-month folder
+
+        # Add any remaining folders (parent folder descriptions)
+        if len(path_parts) > decade_idx + 3:
+            new_parts.extend(path_parts[decade_idx + 3 :])
+
+        new_calc_path = str(Path(*new_parts))
+        self.logger.debug(
+            f"Recalculated path after EXIF update: {original_calc_path} -> {new_calc_path}"
+        )
+        return new_calc_path
+
+    def _resolve_target_path(
+        self,
+        file_path: str,
+        calc_status: str,
+        calc_path: str,
+        calc_filename: str,
+    ) -> Path | None:
+        status = (calc_status or "").strip().upper()
+        if status not in {"RENAME", "MOVE"}:
+            return Path(file_path)
+        if not calc_path or not calc_filename:
+            return None
+        return Path(calc_path) / calc_filename
+
+    def _move_sidecars(self, source_path: str, target_path: Path) -> None:
+        source = Path(source_path)
+        if not source.exists():
+            return
+
+        if source.resolve() == target_path.resolve():
+            return
+
+        target_base = target_path.with_suffix("")
+
+        for ext in SIDECAR_EXTENSIONS:
+            sidecar = source.with_suffix(ext)
+            if not sidecar.exists():
+                continue
+
+            target_sidecar = target_base.with_suffix(ext)
+            if self.dry_run:
+                sidecar_action = (
+                    "would_rename"
+                    if sidecar.parent.resolve() == target_sidecar.parent.resolve()
+                    else "would_move"
+                )
+                self.logger.audit(
+                    "AUDIT sidecar=%s sidecar_action=%s target=%s",
+                    sidecar,
+                    sidecar_action,
+                    target_sidecar,
+                )
+                continue
+
+            if sidecar.resolve() == target_sidecar.resolve():
+                continue
+
+            try:
+                target_sidecar.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(sidecar), str(target_sidecar))
+                sidecar_action = (
+                    "renamed"
+                    if sidecar.parent.resolve() == target_sidecar.parent.resolve()
+                    else "moved"
+                )
+                if sidecar_action == "renamed":
+                    self.stats["sidecar_renamed"] += 1
+                else:
+                    self.stats["sidecar_moved"] += 1
+                self.logger.audit(
+                    "AUDIT sidecar=%s sidecar_action=%s target=%s",
+                    sidecar,
+                    sidecar_action,
+                    target_sidecar,
+                )
+            except Exception as exc:
+                self.stats["sidecar_errors"] += 1
+                self.logger.error(
+                    f"Failed to move sidecar {sidecar} -> {target_sidecar}: {exc}"
+                )
 
     def _resolve_calc_offset(self, row: Dict[str, str], exif_datetime: str) -> str:
         calc_offset = (row.get("Calc Offset") or "").strip()
@@ -224,6 +391,29 @@ class ImageUpdater:
             time_part = "00:00:00"
 
         return f"{date_part} {time_part}"
+
+    def _normalize_calc_filename(
+        self,
+        calc_filename: str,
+        calc_date: str,
+        calc_path: str,
+        exif_datetime: str,
+    ) -> str:
+        normalized = calc_filename or ""
+
+        if exif_datetime:
+            date_part = exif_datetime.split(" ")[0].replace(":", "-")
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", date_part):
+                if re.match(r"^\d{4}-\d{2}-\d{2}", normalized):
+                    normalized_date = normalized[:10]
+                    if normalized_date != date_part:
+                        normalized = date_part + normalized[10:]
+
+        parent_desc = Path(calc_path).name if calc_path else ""
+        if parent_desc:
+            normalized = normalized.replace(f"{parent_desc}__", f"{parent_desc}_", 1)
+
+        return normalized
 
     def _update_exif(
         self,

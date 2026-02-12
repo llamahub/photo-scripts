@@ -211,7 +211,7 @@ def format(ctx):
 
 
 @task
-def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, sample_count=None):
+def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, sample_count=None, integration=False):
     """Run tests.
     
     Args:
@@ -221,6 +221,7 @@ def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, samp
                   (e.g. 'tests/test_file.py::TestClass::test_method')
         keep_temps: Keep temporary files after test completion for debugging
         sample_count: Number of sample images to generate in test_generate_sample_images (default: 10)
+        integration: Run integration tests (e.g., test_placeholder_dates.py workflow tests)
     
     Examples:
         inv test                                    # Run all tests with coverage
@@ -228,11 +229,15 @@ def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, samp
         inv test -t "tests/test_file.py" --keep-temps  # Keep temp files for inspection
         inv test -t "tests/test_generate_images.py::TestImageGenerator::test_generate_sample_images" --sample-count=25
         inv test -t "tests/test_file.py::TestClass" --no-coverage  # Run test class without coverage
+        inv test --integration                      # Run integration tests (like placeholder date fix test)
         inv test -t "tests/test_generate_images.py" --sample-count=55 --keep-temps
 
     """
     # Adjust task description based on whether running specific tests
-    if test_path:
+    if integration:
+        task_header("test", "Run integration tests", ctx, 
+                   verbose=verbose, keep_temps=keep_temps)
+    elif test_path:
         task_header("test", f"Run specific test: {test_path}", ctx, 
                    coverage=coverage, verbose=verbose, test_path=test_path, keep_temps=keep_temps, sample_count=sample_count)
         # Disable coverage by default for specific tests (can be overridden)
@@ -253,6 +258,32 @@ def test(ctx, coverage=True, verbose=False, test_path="", keep_temps=False, samp
         print(f"📊 Using custom sample count: {sample_count}")
     
     python_path = get_venv_python()
+    
+    # Handle integration tests
+    if integration:
+        # Look for integration test files in tests directory
+        integration_test_paths = []
+        tests_dir = Path("tests")
+        if tests_dir.exists():
+            # Find test files that are integration tests (typically named test_*_integration.py or specific ones like test_placeholder_dates.py)
+            integration_candidates = [
+                "test_placeholder_dates.py",
+                "test_integration.py",
+            ]
+            for candidate in integration_candidates:
+                test_file = tests_dir / candidate
+                if test_file.exists():
+                    integration_test_paths.append(str(test_file))
+        
+        if integration_test_paths:
+            print(f"Running {len(integration_test_paths)} integration test(s)...")
+            for test_file in integration_test_paths:
+                print(f"\n▶️  Running: {test_file}")
+                ctx.run(f"python3 {test_file}", pty=True, env=env)
+        else:
+            print("No integration tests found")
+        return
+    
     cmd = f"{python_path} -m pytest"
     
     # Add test path if specified

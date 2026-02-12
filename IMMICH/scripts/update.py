@@ -118,12 +118,16 @@ def main() -> int:
         return 1
 
     logger.info(
-        "Update complete. Total=%d Selected=%d EXIF Updated=%d Renamed=%d Moved=%d Errors=%d",
+        "Update complete. Total=%d Selected=%d EXIF Updated=%d Renamed=%d Moved=%d "
+        "Sidecar Renamed=%d Sidecar Moved=%d Sidecar Errors=%d Errors=%d",
         stats.get("rows_total", 0),
         stats.get("rows_selected", 0),
         stats.get("exif_updated", 0),
         stats.get("renamed", 0),
         stats.get("moved", 0),
+        stats.get("sidecar_renamed", 0),
+        stats.get("sidecar_moved", 0),
+        stats.get("sidecar_errors", 0),
         stats.get("errors", 0),
     )
 

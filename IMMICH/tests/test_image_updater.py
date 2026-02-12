@@ -126,6 +126,8 @@ def test_resolve_offset_from_timezone(tmp_path, monkeypatch):
 def test_process_csv_move(tmp_path, monkeypatch):
     image_path = tmp_path / "photo.jpg"
     image_path.write_text("data")
+    sidecar_path = tmp_path / "photo.xmp"
+    sidecar_path.write_text("xmp")
 
     target_dir = tmp_path / "target"
     target_name = "2024-01-02_0000_1920x1080_photo.jpg"
@@ -155,10 +157,15 @@ def test_process_csv_move(tmp_path, monkeypatch):
 
     stats = updater.process()
     moved_path = target_dir / target_name
+    moved_sidecar = target_dir / "2024-01-02_0000_1920x1080_photo.xmp"
 
     assert stats["moved"] == 1
+    assert stats["sidecar_moved"] == 1
     assert moved_path.exists()
     assert not image_path.exists()
+    assert moved_sidecar.exists()
+    assert not sidecar_path.exists()
+    assert any("sidecar_action=moved" in msg for msg in logger.audits)
 
 
 def test_process_missing_select_column(tmp_path):
@@ -268,6 +275,72 @@ def test_offset_from_invalid_timezone(tmp_path, monkeypatch):
     assert stats["exif_updated"] == 1
     assert captured["offset"] == ""
     assert any("invalid calc timezone" in msg.lower() for msg in logger.warnings)
+
+
+def test_normalize_calc_filename_day_placeholder():
+    updater = ImageUpdater("/tmp/none.csv", logger=_DummyLogger(), dry_run=True)
+    calc_filename = "2023-11-00_0000_960x2079_2023-11_DEB_foo.jpg"
+    exif_datetime = updater._format_exif_datetime("2023-11-00", calc_filename)
+    normalized = updater._normalize_calc_filename(
+        calc_filename,
+        "2023-11-00",
+        "/tmp/2023-11_DEB",
+        exif_datetime,
+    )
+    assert normalized.startswith("2023-11-01")
+
+
+def test_normalize_calc_filename_double_underscore():
+    updater = ImageUpdater("/tmp/none.csv", logger=_DummyLogger(), dry_run=True)
+    calc_path = "/tmp/2011-05-28 Illinois Trip"
+    calc_filename = (
+        "2011-05-28_1359_4352x2868_2011-05-28 Illinois Trip__DSC1944.nef"
+    )
+    exif_datetime = "2011:05:28 13:59:00"
+    normalized = updater._normalize_calc_filename(
+        calc_filename,
+        "2011-05-28 13:59:00",
+        calc_path,
+        exif_datetime,
+    )
+    assert "Illinois Trip_DSC1944" in normalized
+
+
+def test_process_csv_normalizes_filename_placeholder_and_double_underscore(tmp_path, monkeypatch):
+    image_path = tmp_path / "2025-06-24_0648_960x2079_2023-11 Deb_IMG_3993.jpg"
+    image_path.write_text("data")
+
+    target_dir = tmp_path / "2023-11_DEB"
+    calc_filename = "2023-11-00_0000_960x2079_2023-11_DEB_2023-11 Deb_IMG_3993.jpg"
+
+    csv_path = tmp_path / "analyze.csv"
+    _write_csv(
+        csv_path,
+        [
+            {
+                "Filenanme": str(image_path),
+                "Calc Description": "",
+                "Calc Tags": "",
+                "Calc Date": "2023-11-00",
+                "Calc Filename": calc_filename,
+                "Calc Path": str(target_dir),
+                "Calc Status": "MOVE",
+                "Calc Time Used": "",
+                "Select": "Y",
+            }
+        ],
+    )
+
+    updater = ImageUpdater(str(csv_path), logger=_DummyLogger(), dry_run=False)
+    updater.exiftool_available = True
+    monkeypatch.setattr(updater, "_update_exif", lambda *_args, **_kwargs: "updated")
+
+    stats = updater.process()
+    expected_name = "2023-11-01_0000_960x2079_2023-11_DEB_2023-11 Deb_IMG_3993.jpg"
+    expected_path = target_dir / expected_name
+
+    assert stats["moved"] == 1
+    assert expected_path.exists()
 
 
 def test_format_exif_datetime_patterns():
