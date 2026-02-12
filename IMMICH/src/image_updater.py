@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import csv
+import os
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from zoneinfo import ZoneInfo
 
@@ -22,11 +24,16 @@ SIDECAR_EXTENSIONS = {".xmp", ".XMP", ".json", ".JSON", ".disabled",".possible",
 class ImageUpdater:
     """Apply updates from analyze CSV output to image files."""
 
-    def __init__(self, csv_path: str, logger, dry_run: bool = False, all_rows: bool = False) -> None:
+    def __init__(self, csv_path: str, logger, dry_run: bool = False, all_rows: bool = False, max_workers: Optional[int] = None) -> None:
         self.csv_path = Path(csv_path)
         self.logger = logger
         self.dry_run = dry_run
         self.all_rows = all_rows
+        # Calculate max_workers: use provided value or default to 4-8 range, capped at CPU count
+        if max_workers is None:
+            cpu_count = os.cpu_count() or 1
+            max_workers = min(8, max(4, cpu_count // 2))
+        self.max_workers = max_workers
         self.stats = {
             "rows_total": 0,
             "rows_selected": 0,
@@ -47,6 +54,27 @@ class ImageUpdater:
         if not self.csv_path.exists():
             raise FileNotFoundError(f"CSV file not found: {self.csv_path}")
 
+        # Phase 0: Load and validate all selected rows
+        rows = self._load_selected_rows()
+        if not rows:
+            self.logger.info("No rows to process")
+            return self.stats
+
+        self.logger.info(f"Processing {len(rows)} selected files")
+        
+        # Phase 1: Update EXIF in parallel (I/O bound operation)
+        self.logger.info(f"Phase 1: Updating EXIF metadata ({self.max_workers} workers)...")
+        self._process_exif_batch(rows)
+        
+        # Phase 2: Move files serially (to avoid conflicts)
+        self.logger.info("Phase 2: Moving files to final locations...")
+        self._process_moves_batch(rows)
+
+        return self.stats
+
+    def _load_selected_rows(self) -> List[Dict[str, str]]:
+        """Load and filter rows from CSV based on selection criteria."""
+        rows = []
         with self.csv_path.open(newline="", encoding="utf-8") as csv_file:
             reader = csv.DictReader(csv_file)
             select_col = None
@@ -59,49 +87,70 @@ class ImageUpdater:
                     continue
 
                 self.stats["rows_selected"] += 1
-                self._process_row(row)
+                
+                # Validate row can be processed
+                if self._validate_row(row):
+                    rows.append(row)
+                else:
+                    self.stats["errors"] += 1
 
-                if self.stats["rows_selected"] % 50 == 0:
-                    self.logger.info(
-                        f"Progress: {self.stats['rows_selected']} files processed"
-                    )
+        return rows
 
-        return self.stats
-
-    def _select_column(self, fieldnames: List[str]) -> str:
-        if "Selected" in fieldnames:
-            return "Selected"
-        if "Select" in fieldnames:
-            return "Select"
-        raise ValueError("CSV missing selection column: Selected/Select")
-
-    def _is_selected(self, value: str) -> bool:
-        return str(value).strip().lower() in SELECTED_VALUES
-
-    def _process_row(self, row: Dict[str, str]) -> None:
-        file_path = (
-            row.get("Filenanme")
-            or row.get("Filename")
-            or row.get("File")
-            or ""
-        )
+    def _validate_row(self, row: Dict[str, str]) -> bool:
+        """Check if row has required fields."""
+        file_path = row.get("Filenanme") or row.get("Filename") or row.get("File") or ""
         if not file_path:
             self.logger.error("Row missing filename column")
-            self.stats["errors"] += 1
-            return
+            return False
 
         if not Path(file_path).exists():
             self.logger.error(f"File not found: {file_path}")
-            self.stats["errors"] += 1
+            return False
+        
+        return True
+
+    def _process_exif_batch(self, rows: List[Dict[str, str]]) -> None:
+        """Update EXIF for all rows in parallel using ThreadPoolExecutor."""
+        if not rows:
             return
 
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self._update_exif_for_row, row): i for i, row in enumerate(rows)}
+            
+            for idx, future in enumerate(as_completed(futures), 1):
+                row_idx = futures[future]
+                try:
+                    exif_status, new_calc_path, exif_datetime = future.result()
+                    rows[row_idx]["_exif_status"] = exif_status
+                    rows[row_idx]["_new_calc_path"] = new_calc_path
+                    rows[row_idx]["_exif_datetime"] = exif_datetime
+                    
+                    if exif_status == "updated":
+                        self.stats["exif_updated"] += 1
+                    elif exif_status == "skipped":
+                        self.stats["exif_skipped"] += 1
+                    else:
+                        self.stats["errors"] += 1
+                except Exception as exc:
+                    self.logger.error(f"EXIF update error for row {row_idx}: {exc}")
+                    self.stats["errors"] += 1
+                    rows[row_idx]["_exif_status"] = "error"
+                    rows[row_idx]["_exif_datetime"] = ""
+
+                if idx % 50 == 0:
+                    self.logger.info(f"EXIF Progress: {idx}/{len(rows)} files processed")
+
+    def _update_exif_for_row(self, row: Dict[str, str]) -> tuple:
+        """Update EXIF for a single row. Returns (status, new_calc_path, exif_datetime)."""
+        file_path = row.get("Filenanme") or row.get("Filename") or row.get("File") or ""
         calc_description = row.get("Calc Description", "")
         calc_tags = self._split_tags(row.get("Calc Tags", ""))
         calc_date = row.get("Calc Date", "")
         calc_filename = row.get("Calc Filename", "")
+        
         exif_datetime = self._format_exif_datetime(calc_date, calc_filename)
         calc_offset = self._resolve_calc_offset(row, exif_datetime)
-
+        
         exif_status = self._update_exif(
             file_path,
             calc_description,
@@ -109,26 +158,40 @@ class ImageUpdater:
             exif_datetime,
             calc_offset,
         )
-        if exif_status == "updated":
-            self.stats["exif_updated"] += 1
-        elif exif_status == "skipped":
-            self.stats["exif_skipped"] += 1
-        else:
-            self.stats["errors"] += 1
-
-        calc_status = row.get("Calc Status", "")
-        calc_path = row.get("Calc Path", "")
         
-        # If EXIF was updated and the original calc_path had a placeholder date (YYYY-00),
-        # recalculate the path based on the new EXIF date to ensure proper organization
+        # If EXIF was updated and original path had placeholder date, recalculate path
+        new_calc_path = ""
         if exif_status == "updated" and calc_date and self._is_placeholder_date(calc_date):
-            calc_path = self._recalculate_path_after_exif_update(
-                calc_path, exif_datetime, row.get("Filenanme", "")
+            calc_path = row.get("Calc Path", "")
+            new_calc_path = self._recalculate_path_after_exif_update(
+                calc_path, exif_datetime, file_path
             )
+        
+        return exif_status, new_calc_path, exif_datetime
+
+    def _process_moves_batch(self, rows: List[Dict[str, str]]) -> None:
+        """Move files serially after EXIF updates are complete."""
+        for idx, row in enumerate(rows, 1):
+            self._process_row_for_move(row)
+            
+            if idx % 50 == 0:
+                self.logger.info(f"Move Progress: {idx}/{len(rows)} files processed")
+
+    def _process_row_for_move(self, row: Dict[str, str]) -> None:
+        """Handle file move phase after EXIF updates."""
+        file_path = row.get("Filenanme") or row.get("Filename") or row.get("File") or ""
+        calc_status = row.get("Calc Status", "")
+        
+        # Use new calc_path if it was recalculated due to placeholder date, otherwise use original
+        calc_path = row.get("_new_calc_path", "") or row.get("Calc Path", "")
+        calc_filename = row.get("Calc Filename", "")
+        
+        # Use the exif_datetime that was computed during EXIF phase
+        exif_datetime = row.get("_exif_datetime", "")
         
         calc_filename = self._normalize_calc_filename(
             calc_filename,
-            calc_date,
+            row.get("Calc Date", ""),
             calc_path,
             exif_datetime,
         )
@@ -151,8 +214,18 @@ class ImageUpdater:
             self.stats["errors"] += 1
 
         self.logger.audit(
-            f"AUDIT file={file_path} exif={exif_status} file_action={file_status}"
+            f"AUDIT file={file_path} exif={row.get('_exif_status', 'none')} file_action={file_status}"
         )
+
+    def _select_column(self, fieldnames: List[str]) -> str:
+        if "Selected" in fieldnames:
+            return "Selected"
+        if "Select" in fieldnames:
+            return "Select"
+        raise ValueError("CSV missing selection column: Selected/Select")
+
+    def _is_selected(self, value: str) -> bool:
+        return str(value).strip().lower() in SELECTED_VALUES
 
     def _split_tags(self, value: str) -> List[str]:
         return [tag.strip() for tag in (value or "").split(";") if tag.strip()]

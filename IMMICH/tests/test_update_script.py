@@ -31,7 +31,7 @@ def test_main_success(tmp_path, monkeypatch):
     latest_used = {"path": None}
 
     class DummyUpdater:
-        def __init__(self, csv_path, logger, dry_run=False):
+        def __init__(self, csv_path, logger, dry_run=False, all_rows=False, max_workers=None, **kwargs):
             latest_used["path"] = Path(csv_path)
 
         def process(self):
@@ -54,7 +54,7 @@ def test_main_last_uses_latest(tmp_path, monkeypatch):
     second.write_text("header\n")
 
     class DummyUpdater:
-        def __init__(self, csv_path, logger, dry_run=False):
+        def __init__(self, csv_path, logger, dry_run=False, all_rows=False, max_workers=None, **kwargs):
             self.csv_path = csv_path
 
         def process(self):
