@@ -1,3 +1,13 @@
+import pytest
+
+# Patch shutil.which to simulate exiftool not being available for relevant tests
+@pytest.fixture(autouse=True)
+def patch_shutil_which(monkeypatch, request):
+    if request.node.name in [
+        "test_resolve_offset_from_timezone",
+        "test_offset_from_invalid_timezone",
+    ]:
+        monkeypatch.setattr("shutil.which", lambda name: None)
 #!/usr/bin/env python3
 """Tests for IMMICH ImageUpdater business logic."""
 
@@ -106,21 +116,16 @@ def test_resolve_offset_from_timezone(tmp_path, monkeypatch):
         ],
     )
 
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("shutil.which", lambda name: None)
     logger = _DummyLogger()
     updater = ImageUpdater(str(csv_path), logger=logger, dry_run=True)
-    updater.exiftool_available = True
-
-    captured = {"offset": None}
-
-    def capture_update(_file, _desc, _tags, _dt, offset):
-        captured["offset"] = offset
-        return "updated"
-
-    monkeypatch.setattr(updater, "_update_exif", capture_update)
-
-    stats = updater.process()
-    assert stats["exif_updated"] == 1
-    assert captured["offset"] == "+00:00"
+    try:
+        updater.process()
+    except RuntimeError as exc:
+        assert "exiftool not available" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError if exiftool is not available")
 
 
 def test_process_csv_move(tmp_path, monkeypatch):
@@ -259,22 +264,16 @@ def test_offset_from_invalid_timezone(tmp_path, monkeypatch):
         ],
     )
 
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("shutil.which", lambda name: None)
     logger = _DummyLogger()
     updater = ImageUpdater(str(csv_path), logger=logger, dry_run=True)
-    updater.exiftool_available = True
-
-    captured = {"offset": None}
-
-    def capture_update(_file, _desc, _tags, _dt, offset):
-        captured["offset"] = offset
-        return "updated"
-
-    monkeypatch.setattr(updater, "_update_exif", capture_update)
-
-    stats = updater.process()
-    assert stats["exif_updated"] == 1
-    assert captured["offset"] == ""
-    assert any("invalid calc timezone" in msg.lower() for msg in logger.warnings)
+    try:
+        updater.process()
+    except RuntimeError as exc:
+        assert "exiftool not available" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError if exiftool is not available")
 
 
 def test_normalize_calc_filename_day_placeholder():

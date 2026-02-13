@@ -22,7 +22,53 @@ SIDECAR_EXTENSIONS = {".xmp", ".XMP", ".json", ".JSON", ".disabled",".possible",
 
 
 class ImageUpdater:
-    """Apply updates from analyze CSV output to image files."""
+    def _format_exif_datetime(self, calc_date: str, calc_filename: str) -> str:
+        """
+        Normalize various date formats to EXIF datetime (YYYY:MM:DD HH:MM:SS).
+        Handles Excel-style dates, ISO, and placeholder months/days.
+        If time is missing, tries to extract from filename or defaults to 00:00:00.
+        """
+        if not calc_date or not isinstance(calc_date, str):
+            return ""
+
+        # Try Excel-style dates (M/D/YY H:MM or M/D/YY)
+        for fmt in ("%m/%d/%y %H:%M", "%m/%d/%y"):
+            try:
+                dt = datetime.strptime(calc_date, fmt)
+                return dt.strftime("%Y:%m:%d %H:%M:%S")
+            except ValueError:
+                continue
+
+        # Try ISO date/time patterns
+        # Accepts: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY-MM-DD HH:MM:SS
+        date_part_raw = calc_date[:10].replace(":", "-")
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_part_raw):
+            return ""
+
+        year, month, day = date_part_raw.split("-")
+        # Replace placeholder months/days (00) with 01
+        month = "01" if month == "00" else month
+        day = "01" if day == "00" else day
+        date_part = f"{year}:{month}:{day}"
+
+        # Try to extract time part from calc_date
+        time_part = ""
+        if len(calc_date) >= 16 and ":" in calc_date[11:16]:
+            # Handles YYYY-MM-DD HH:MM or YYYY-MM-DD HH:MM:SS
+            time_part = calc_date[11:19] if len(calc_date) >= 19 else f"{calc_date[11:16]}:00"
+
+        # If no time in date, try to extract from filename (e.g., 2023-11-26_0911_...)
+        if not time_part:
+            match = re.match(r"^\d{4}-\d{2}-\d{2}_(\d{4})_", calc_filename or "")
+            if match:
+                hhmm = match.group(1)
+                if hhmm != "0000":
+                    time_part = f"{hhmm[:2]}:{hhmm[2:]}:00"
+
+        if not time_part:
+            time_part = "00:00:00"
+
+        return f"{date_part} {time_part}"
 
     def __init__(self, csv_path: str, logger, dry_run: bool = False, all_rows: bool = False, max_workers: Optional[int] = None) -> None:
         self.csv_path = Path(csv_path)
@@ -47,10 +93,11 @@ class ImageUpdater:
             "errors": 0,
         }
         self.exiftool_available = shutil.which("exiftool") is not None
-        if not self.exiftool_available and not self.dry_run:
-            self.logger.warning("exiftool not found on PATH; EXIF updates will be skipped")
 
     def process(self) -> Dict[str, int]:
+        if not self.exiftool_available:
+            self.logger.error("exiftool not available; cannot update EXIF")
+            raise RuntimeError("exiftool not available; cannot update EXIF")
         if not self.csv_path.exists():
             raise FileNotFoundError(f"CSV file not found: {self.csv_path}")
 
@@ -147,10 +194,15 @@ class ImageUpdater:
         calc_tags = self._split_tags(row.get("Calc Tags", ""))
         calc_date = row.get("Calc Date", "")
         calc_filename = row.get("Calc Filename", "")
-        
+
         exif_datetime = self._format_exif_datetime(calc_date, calc_filename)
         calc_offset = self._resolve_calc_offset(row, exif_datetime)
-        
+
+        # Always error and stop if exiftool is not available, regardless of dry run
+        if not self.exiftool_available:
+            self.logger.error("exiftool not available; cannot update EXIF")
+            raise RuntimeError("exiftool not available; cannot update EXIF")
+
         exif_status = self._update_exif(
             file_path,
             calc_description,
@@ -158,7 +210,7 @@ class ImageUpdater:
             exif_datetime,
             calc_offset,
         )
-        
+
         # If EXIF was updated and original path had placeholder date, recalculate path
         new_calc_path = ""
         if exif_status == "updated" and calc_date and self._is_placeholder_date(calc_date):
@@ -166,7 +218,7 @@ class ImageUpdater:
             new_calc_path = self._recalculate_path_after_exif_update(
                 calc_path, exif_datetime, file_path
             )
-        
+
         return exif_status, new_calc_path, exif_datetime
 
     def _process_moves_batch(self, rows: List[Dict[str, str]]) -> None:
@@ -398,75 +450,19 @@ class ImageUpdater:
         try:
             tzinfo = ZoneInfo(timezone_name)
         except Exception as exc:
-            self.logger.warning(
-                f"Invalid Calc Timezone '{timezone_name}': {exc}"
-            )
+            self.logger.warning(f"Invalid Calc Timezone '{timezone_name}': {exc}")
             return ""
 
         offset = dt.replace(tzinfo=tzinfo).utcoffset()
         if offset is None:
             return ""
-
-        total_minutes = int(offset.total_seconds() // 60)
-        sign = "+" if total_minutes >= 0 else "-"
-        abs_minutes = abs(total_minutes)
-        hours = abs_minutes // 60
-        minutes = abs_minutes % 60
-        return f"{sign}{hours:02d}:{minutes:02d}"
-
-    def _parse_exif_datetime(self, exif_datetime: str) -> datetime | None:
-        text = (exif_datetime or "").strip()
-        if not text:
-            return None
-
-        for fmt in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-            try:
-                return datetime.strptime(text, fmt)
-            except ValueError:
-                continue
-
-        return None
-
-    def _format_exif_datetime(self, calc_date: str, calc_filename: str) -> str:
-        calc_date = (calc_date or "").strip()
-        if not calc_date:
-            return ""
-
-        # Normalize Excel-style dates (M/D/YY H:MM or M/D/YY)
-        for fmt in ("%m/%d/%y %H:%M", "%m/%d/%y"):
-            try:
-                dt = datetime.strptime(calc_date, fmt)
-                return dt.strftime("%Y:%m:%d %H:%M:%S")
-            except ValueError:
-                continue
-
-        if len(calc_date) < 10:
-            return ""
-
-        date_part_raw = calc_date[:10].replace(":", "-")
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_part_raw):
-            return ""
-
-        year, month, day = date_part_raw.split("-")
-        month = "01" if month == "00" else month
-        day = "01" if day == "00" else day
-        date_part = f"{year}:{month}:{day}"
-
-        time_part = ""
-        if len(calc_date) >= 16 and ":" in calc_date[11:16]:
-            time_part = calc_date[11:19] if len(calc_date) >= 19 else f"{calc_date[11:16]}:00"
-
-        if not time_part:
-            match = re.match(r"^\d{4}-\d{2}-\d{2}_(\d{4})_", calc_filename or "")
-            if match:
-                hhmm = match.group(1)
-                if hhmm != "0000":
-                    time_part = f"{hhmm[:2]}:{hhmm[2:]}:00"
-
-        if not time_part:
-            time_part = "00:00:00"
-
-        return f"{date_part} {time_part}"
+        # Format as "+HH:MM" or "-HH:MM"
+        total_seconds = offset.total_seconds()
+        sign = "+" if total_seconds >= 0 else "-"
+        total_seconds = abs(int(total_seconds))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes = remainder // 60
+        return f"{sign}{hours:02.0f}:{minutes:02.0f}"
 
     def _normalize_calc_filename(
         self,
@@ -502,13 +498,12 @@ class ImageUpdater:
         if not description and not tags and not date_exif:
             return "skipped"
 
-        if not self.exiftool_available and not self.dry_run:
-            self.logger.error("exiftool not available; cannot update EXIF")
-            return "error"
-
         if self.dry_run:
             self.logger.debug(f"Would update EXIF for {file_path} (dry run)")
             return "updated"
+        if not self.exiftool_available:
+            self.logger.error("exiftool not available; cannot update EXIF")
+            return "error"
 
         ext = Path(file_path).suffix.lower()
         is_heic = ext in HEIC_EXTENSIONS
@@ -516,32 +511,31 @@ class ImageUpdater:
         cmd = ["exiftool", "-overwrite_original", "-F"]
         cmd.append(f"-Description={description}")
 
-        if tags is not None:
-            if tags:
-                if len(tags) == 1:
-                    # Single tag: set all possible fields
-                    tag = tags[0]
+        # Deduplicate tags before writing
+        unique_tags = list(dict.fromkeys(tags)) if tags is not None else []
+
+        if unique_tags:
+            if len(unique_tags) == 1:
+                tag = unique_tags[0]
+                cmd.append(f"-Subject={tag}")
+                cmd.append(f"-Keywords={tag}")
+                cmd.append(f"-XMP:Subject={tag}")
+                cmd.append(f"-XMP-dc:Subject={tag}")
+                cmd.append(f"-IPTC:Keywords={tag}")
+            else:
+                for tag in unique_tags:
                     cmd.append(f"-Subject={tag}")
                     cmd.append(f"-Keywords={tag}")
                     cmd.append(f"-XMP:Subject={tag}")
-                    cmd.append(f"-XMP-dc:Subject={tag}")
                     cmd.append(f"-IPTC:Keywords={tag}")
-                else:
-                    # Multiple tags: set only multi-value fields, clear others
-                    for tag in tags:
-                        cmd.append(f"-Subject={tag}")
-                        cmd.append(f"-Keywords={tag}")
-                        cmd.append(f"-XMP:Subject={tag}")
-                        cmd.append(f"-IPTC:Keywords={tag}")
-                    # Clear single-value fields (if any)
-                    cmd.append("-XMP-dc:Subject=")
-            else:
-                # No tags: clear all possible fields
-                cmd.append("-Subject=")
-                cmd.append("-Keywords=")
-                cmd.append("-XMP:Subject=")
                 cmd.append("-XMP-dc:Subject=")
-                cmd.append("-IPTC:Keywords=")
+        else:
+            # No tags: clear all possible fields
+            cmd.append("-Subject=")
+            cmd.append("-Keywords=")
+            cmd.append("-XMP:Subject=")
+            cmd.append("-XMP-dc:Subject=")
+            cmd.append("-IPTC:Keywords=")
 
         if date_exif:
             cmd.append(f"-DateTimeOriginal={date_exif}")
