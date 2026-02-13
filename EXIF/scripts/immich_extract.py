@@ -122,6 +122,26 @@ def main():
         updated_after = getattr(args, 'updated_after', None)
         if not updated_after:
             parser.error("Required arguments missing: updated_after (for --search mode)")
+        # Validate ISO 8601 date format (YYYY-MM-DD or YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS, with optional Z)
+        import re
+        iso8601_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(Z)?)?$")
+        if not iso8601_pattern.match(updated_after):
+            parser.error(f"Invalid value for --updatedAfter: '{updated_after}'. Must be ISO 8601 format (e.g., 2025-06-30T00:00 or 2025-06-30T00:00:00Z)")
+        # Try parsing to catch impossible dates (e.g., 2026-02-00)
+        from datetime import datetime
+        try:
+            # Accept both with and without time, with or without Z
+            dt = None
+            for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    dt = datetime.strptime(updated_after, fmt)
+                    break
+                except ValueError:
+                    continue
+            if dt is None:
+                raise ValueError
+        except Exception:
+            parser.error(f"Invalid value for --updatedAfter: '{updated_after}'. Date/time is not valid or not ISO 8601 format.")
 
     # --- Load .env using common config ---
     from exif.immich_config import ImmichConfig
