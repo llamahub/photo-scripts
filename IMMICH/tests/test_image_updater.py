@@ -398,6 +398,85 @@ def test_update_exif_with_real_exiftool(tmp_path):
     logger = _DummyLogger()
     updater = ImageUpdater(str(tmp_path / "none.csv"), logger=logger, dry_run=False)
 
+    def test_update_exif_with_single_tag(tmp_path):
+        if shutil.which("exiftool") is None:
+            return
+
+        try:
+            from PIL import Image
+        except ImportError:
+            return
+
+        image_path = tmp_path / "photo_single.jpg"
+        image = Image.new("RGB", (16, 16), color="blue")
+        image.save(image_path, format="JPEG")
+
+        logger = _DummyLogger()
+        updater = ImageUpdater(str(tmp_path / "none.csv"), logger=logger, dry_run=False)
+
+        result = updater._update_exif(
+            str(image_path),
+            "Single Tag Description",
+            ["onlytag"],
+            "2024:01:02 03:04:05",
+            "+00:00",
+        )
+
+        assert result == "updated"
+
+        exif = subprocess.run(
+            ["exiftool", "-j", str(image_path)],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        data = json.loads(exif.stdout)[0]
+        # All fields should have the single tag
+        for field in ["Keywords", "Subject", "XMP:Subject", "XMP-dc:Subject", "IPTC:Keywords"]:
+            val = data.get(field)
+            if val is not None:
+                if isinstance(val, list):
+                    assert "onlytag" in val
+                else:
+                    assert val == "onlytag"
+
+    def test_update_exif_with_no_tags(tmp_path):
+        if shutil.which("exiftool") is None:
+            return
+
+        try:
+            from PIL import Image
+        except ImportError:
+            return
+
+        image_path = tmp_path / "photo_none.jpg"
+        image = Image.new("RGB", (16, 16), color="green")
+        image.save(image_path, format="JPEG")
+
+        logger = _DummyLogger()
+        updater = ImageUpdater(str(tmp_path / "none.csv"), logger=logger, dry_run=False)
+
+        result = updater._update_exif(
+            str(image_path),
+            "No Tag Description",
+            [],
+            "2024:01:02 03:04:05",
+            "+00:00",
+        )
+
+        assert result == "updated"
+
+        exif = subprocess.run(
+            ["exiftool", "-j", str(image_path)],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        data = json.loads(exif.stdout)[0]
+        # All fields should be missing or empty
+        for field in ["Keywords", "Subject", "XMP:Subject", "XMP-dc:Subject", "IPTC:Keywords"]:
+            val = data.get(field)
+            assert not val
     result = updater._update_exif(
         str(image_path),
         "Test Description",

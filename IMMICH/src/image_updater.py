@@ -518,16 +518,30 @@ class ImageUpdater:
 
         if tags is not None:
             if tags:
-                for tag in tags:
-                    if is_heic:
-                        cmd.append(f"-Subject={tag}")
-                    else:
-                        cmd.append(f"-Keywords={tag}")
-            else:
-                if is_heic:
-                    cmd.append("-Subject=")
+                if len(tags) == 1:
+                    # Single tag: set all possible fields
+                    tag = tags[0]
+                    cmd.append(f"-Subject={tag}")
+                    cmd.append(f"-Keywords={tag}")
+                    cmd.append(f"-XMP:Subject={tag}")
+                    cmd.append(f"-XMP-dc:Subject={tag}")
+                    cmd.append(f"-IPTC:Keywords={tag}")
                 else:
-                    cmd.append("-Keywords=")
+                    # Multiple tags: set only multi-value fields, clear others
+                    for tag in tags:
+                        cmd.append(f"-Subject={tag}")
+                        cmd.append(f"-Keywords={tag}")
+                        cmd.append(f"-XMP:Subject={tag}")
+                        cmd.append(f"-IPTC:Keywords={tag}")
+                    # Clear single-value fields (if any)
+                    cmd.append("-XMP-dc:Subject=")
+            else:
+                # No tags: clear all possible fields
+                cmd.append("-Subject=")
+                cmd.append("-Keywords=")
+                cmd.append("-XMP:Subject=")
+                cmd.append("-XMP-dc:Subject=")
+                cmd.append("-IPTC:Keywords=")
 
         if date_exif:
             cmd.append(f"-DateTimeOriginal={date_exif}")
