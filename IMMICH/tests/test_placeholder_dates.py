@@ -14,12 +14,17 @@ updated to real values. The fix ensures the files get moved to the
 correct YYYY-MM folders after EXIF update.
 """
 
+
 import csv
 import sys
 from pathlib import Path
 import subprocess
 import tempfile
 from typing import List, Dict
+import pytest
+
+# Mark this file as integration test
+pytestmark = pytest.mark.integration
 
 
 def run_analyze(fixture_dir: str) -> str:

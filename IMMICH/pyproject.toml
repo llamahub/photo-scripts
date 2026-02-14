@@ -17,6 +17,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pydantic-settings>=2.0.0",  # <-- add this line
     "requests>=2.0.0",
+    "piexif",
+    "Pillow",
 ]
 
 # Optional dependency groups
@@ -42,6 +44,9 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 pythonpath = ["scripts", "src","common/src"]
+markers = [
+    "integration: mark a test as an integration test"
+]
 
 [tool.black]
 line-length = 88

@@ -11,6 +11,10 @@
     {
       "name": "EXIF Project",
       "path": "./EXIF"
+    },
+    {
+      "name": "IMMICH Project",
+      "path": "./IMMICH"
     }
   ],
   "settings": {

@@ -104,7 +104,7 @@ def test_analyze_to_csv_writes_rows(tmp_path, monkeypatch):
         "</rdf:Description></rdf:RDF></x:xmpmeta>"
     )
 
-    analyzer = ImageAnalyzer(str(source_dir), logger=_DummyLogger(), detect_true_ext=False, max_workers=1)
+    analyzer = ImageAnalyzer(str(source_dir), logger=_DummyLogger(), max_workers=1)
 
     def fake_read_exif(path):
         if path and path.suffix.lower() == ".xmp":
@@ -145,8 +145,11 @@ def test_iter_image_files_filters(tmp_path):
 def test_get_true_extension_skip(tmp_path):
     image_path = tmp_path / "photo.jpeg"
     image_path.write_text("data")
-    analyzer = ImageAnalyzer(str(tmp_path), logger=_DummyLogger(), detect_true_ext=False)
-    assert analyzer._get_true_extension(image_path) == "jpeg"
+    analyzer = ImageAnalyzer(str(tmp_path), logger=_DummyLogger())
+    # Test that _get_file_type_extension returns the file's extension when ExifTool data is unavailable
+    # (for files with no EXIF data, it should fall back to the file extension)
+    ext = analyzer._get_file_type_extension(image_path, {})
+    assert ext == "jpeg"
 
 
 def test_retry_exif_timeouts(monkeypatch, tmp_path):

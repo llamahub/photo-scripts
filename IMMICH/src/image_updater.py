@@ -70,11 +70,12 @@ class ImageUpdater:
 
         return f"{date_part} {time_part}"
 
-    def __init__(self, csv_path: str, logger, dry_run: bool = False, all_rows: bool = False, max_workers: Optional[int] = None) -> None:
+    def __init__(self, csv_path: str, logger, dry_run: bool = False, all_rows: bool = False, max_workers: Optional[int] = None, force: bool = False) -> None:
         self.csv_path = Path(csv_path)
         self.logger = logger
         self.dry_run = dry_run
         self.all_rows = all_rows
+        self.force = force
         # Calculate max_workers: use provided value or default to 4-8 range, capped at CPU count
         if max_workers is None:
             cpu_count = os.cpu_count() or 1
@@ -130,11 +131,11 @@ class ImageUpdater:
 
             for row in reader:
                 self.stats["rows_total"] += 1
-                if not self.all_rows and not self._is_selected(row.get(select_col, "")):
+                # Only skip unselected if not all_rows and not force
+                if not self.all_rows and not self.force and not self._is_selected(row.get(select_col, "")):
                     continue
 
                 self.stats["rows_selected"] += 1
-                
                 # Validate row can be processed
                 if self._validate_row(row):
                     rows.append(row)
@@ -167,10 +168,15 @@ class ImageUpdater:
             for idx, future in enumerate(as_completed(futures), 1):
                 row_idx = futures[future]
                 try:
-                    exif_status, new_calc_path, exif_datetime = future.result()
+                    exif_status, new_calc_path, exif_datetime, updated_file_path = future.result()
                     rows[row_idx]["_exif_status"] = exif_status
                     rows[row_idx]["_new_calc_path"] = new_calc_path
                     rows[row_idx]["_exif_datetime"] = exif_datetime
+                    # Update filename if it was renamed
+                    if "Filenanme" in rows[row_idx]:
+                        rows[row_idx]["Filenanme"] = updated_file_path
+                    else:
+                        rows[row_idx]["Filename"] = updated_file_path
                     
                     if exif_status == "updated":
                         self.stats["exif_updated"] += 1
@@ -188,7 +194,7 @@ class ImageUpdater:
                     self.logger.info(f"EXIF Progress: {idx}/{len(rows)} files processed")
 
     def _update_exif_for_row(self, row: Dict[str, str]) -> tuple:
-        """Update EXIF for a single row. Returns (status, new_calc_path, exif_datetime)."""
+        """Update EXIF for a single row. Returns (status, new_calc_path, exif_datetime, updated_file_path)."""
         file_path = row.get("Filenanme") or row.get("Filename") or row.get("File") or ""
         calc_description = row.get("Calc Description", "")
         calc_tags = self._split_tags(row.get("Calc Tags", ""))
@@ -203,6 +209,10 @@ class ImageUpdater:
             self.logger.error("exiftool not available; cannot update EXIF")
             raise RuntimeError("exiftool not available; cannot update EXIF")
 
+        # Rename file to correct extension if needed (before EXIF update)
+        file_path = self._rename_file_to_correct_extension(file_path, calc_filename)
+
+        # If force is set, always update EXIF regardless of status (future logic can use this flag)
         exif_status = self._update_exif(
             file_path,
             calc_description,
@@ -219,7 +229,7 @@ class ImageUpdater:
                 calc_path, exif_datetime, file_path
             )
 
-        return exif_status, new_calc_path, exif_datetime
+        return exif_status, new_calc_path, exif_datetime, file_path
 
     def _process_moves_batch(self, rows: List[Dict[str, str]]) -> None:
         """Move files serially after EXIF updates are complete."""
@@ -487,6 +497,33 @@ class ImageUpdater:
 
         return normalized
 
+    def _rename_file_to_correct_extension(self, file_path: str, calc_filename: str) -> str:
+        """
+        Rename file to correct extension if it differs from calc_filename.
+        Returns the actual file path (renamed or original).
+        """
+        current_path = Path(file_path)
+        if not current_path.exists():
+            self.logger.warning(f"File not found for renaming: {file_path}")
+            return file_path
+
+        # Extract correct extension from calc_filename
+        calc_ext = Path(calc_filename).suffix.lower()
+        current_ext = current_path.suffix.lower()
+
+        if not calc_ext or calc_ext == current_ext:
+            return file_path  # No renaming needed
+
+        # Rename to correct extension
+        new_path = current_path.with_suffix(calc_ext)
+        try:
+            current_path.rename(new_path)
+            self.logger.info(f"Renamed {current_path.name} to {new_path.name}")
+            return str(new_path)
+        except Exception as exc:
+            self.logger.error(f"Failed to rename {file_path} to {new_path}: {exc}")
+            return file_path
+
     def _update_exif(
         self,
         file_path: str,
@@ -511,24 +548,68 @@ class ImageUpdater:
         cmd = ["exiftool", "-overwrite_original", "-F"]
         cmd.append(f"-Description={description}")
 
-        # Deduplicate tags before writing
-        unique_tags = list(dict.fromkeys(tags)) if tags is not None else []
+        # Efficient deduplication using exiftool's -api nodups and -sep
+        if tags is not None:
+            # piexif pre-clean step removed: XPKeywords will not be removed before exiftool
 
-        if unique_tags:
-            if len(unique_tags) == 1:
-                tag = unique_tags[0]
-                cmd.append(f"-Subject={tag}")
-                cmd.append(f"-Keywords={tag}")
-                cmd.append(f"-XMP:Subject={tag}")
-                cmd.append(f"-XMP-dc:Subject={tag}")
-                cmd.append(f"-IPTC:Keywords={tag}")
+
+            # --- Ensure XMP block exists by injecting minimal XMP if needed (direct binary injection) ---
+            try:
+                # Check if XMP:Subject exists using exiftool
+                result = subprocess.run([
+                    "exiftool", "-XMP:Subject", "-s3", file_path
+                ], capture_output=True, text=True, check=True)
+                if not result.stdout.strip():
+                    # Inject minimal XMP block directly if missing
+                    xmp_template = (
+                        b'<?xpacket begin="\xef\xbb\xbf" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
+                        b'<x:xmpmeta xmlns:x="adobe:ns:meta/">\n'
+                        b' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
+                        b'  <rdf:Description rdf:about=""/>'
+                        b' </rdf:RDF>\n'
+                        b'</x:xmpmeta>\n'
+                        b'<?xpacket end="w"?>'
+                    )
+                    with open(file_path, "rb") as f:
+                        data = f.read()
+                    # Find JPEG header (0xFFD8), insert XMP after it
+                    if data[:2] == b"\xFF\xD8":
+                        # Insert after SOI marker
+                        new_data = data[:2] + b'\xFF\xE1' + (len(xmp_template)+2).to_bytes(2, 'big') + b'http://ns.adobe.com/xap/1.0/\x00' + xmp_template + data[2:]
+                        with open(file_path, "wb") as f:
+                            f.write(new_data)
+            except Exception as exc:
+                self.logger.warning(f"Direct XMP injection failed for {file_path}: {exc}")
+
+            if isinstance(tags, str):
+                # Split on ; or , or whitespace, then strip
+                raw_tags = re.split(r'[;,\n]+', tags)
             else:
-                for tag in unique_tags:
-                    cmd.append(f"-Subject={tag}")
-                    cmd.append(f"-Keywords={tag}")
-                    cmd.append(f"-XMP:Subject={tag}")
-                    cmd.append(f"-IPTC:Keywords={tag}")
-                cmd.append("-XMP-dc:Subject=")
+                raw_tags = tags
+            # Deduplicate tags, preserving order and case sensitivity
+            seen = set()
+            norm_tags = []
+            for t in (tag.strip() for tag in raw_tags if tag and tag.strip()):
+                if t not in seen:
+                    seen.add(t)
+                    norm_tags.append(t)
+            tag_str = ";".join(norm_tags)
+            # Use -api nodups and -sep for all tag sets
+            cmd.insert(1, "-api")
+            cmd.insert(2, "nodups")
+            cmd.append("-sep")
+            cmd.append(";")
+            cmd.append(f"-Subject={tag_str}")
+            cmd.append(f"-Keywords={tag_str}")
+            # Set all tag fields to the deduplicated, ordered tag list
+            cmd.append(f"-Subject={tag_str}")
+            cmd.append(f"-Keywords={tag_str}")
+            if norm_tags:
+                for t in norm_tags:
+                    cmd.append(f"-XMP:Subject={t}")
+            cmd.append(f"-XMP-dc:Subject={tag_str}")
+            cmd.append(f"-IPTC:Keywords={tag_str}")
+            cmd.append(f"-XPKeywords={tag_str}")
         else:
             # No tags: clear all possible fields
             cmd.append("-Subject=")
@@ -536,6 +617,7 @@ class ImageUpdater:
             cmd.append("-XMP:Subject=")
             cmd.append("-XMP-dc:Subject=")
             cmd.append("-IPTC:Keywords=")
+            cmd.append("-XPKeywords=")
 
         if date_exif:
             cmd.append(f"-DateTimeOriginal={date_exif}")

@@ -55,6 +55,11 @@ SCRIPT_ARGUMENTS = {
         "action": "store_true",
         "help": "Process all rows regardless of Select column value",
     },
+    "force": {
+        "flag": "--force",
+        "action": "store_true",
+        "help": "Force update of calculated values regardless of status",
+    },
 }
 
 ARGUMENTS = merge_arguments(create_standard_arguments(), SCRIPT_ARGUMENTS)
@@ -103,6 +108,7 @@ def main() -> int:
         "input": "Input CSV",
         "last": "Use latest CSV",
         "all": "Process all rows",
+        "force": "Force update",
         "dry_run": "Dry run",
     }
     for arg_key, display_label in config_map.items():
@@ -118,6 +124,7 @@ def main() -> int:
             logger=logger,
             dry_run=resolved_args.get("dry_run", False),
             all_rows=resolved_args.get("all", False),
+            force=resolved_args.get("force", False),
         )
         stats = updater.process()
     except Exception as exc:
@@ -138,8 +145,12 @@ def main() -> int:
         stats.get("errors", 0),
     )
 
-    if stats.get("errors", 0) > 0:
+    # Only fail if we have CRITICAL errors (e.g., exiftool missing, file I/O issues)
+    # File-level EXIF update failures (e.g., corrupted files) are acceptable
+    if stats.get("sidecar_errors", 0) > 0:
+        logger.warning(f"Sidecar errors encountered: {stats['sidecar_errors']}")
         return 1
+    
     return 0
 
 

@@ -430,7 +430,7 @@ def test_update_exif_with_real_exiftool(tmp_path):
             text=True,
         )
         data = json.loads(exif.stdout)[0]
-        # All fields should have the single tag
+        # All fields should have the single tag (case preserved)
         for field in ["Keywords", "Subject", "XMP:Subject", "XMP-dc:Subject", "IPTC:Keywords"]:
             val = data.get(field)
             if val is not None:

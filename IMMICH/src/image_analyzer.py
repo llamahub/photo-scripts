@@ -16,6 +16,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+# Mapping from ExifTool File Type to normalized extension
+FILE_TYPE_TO_EXT = {
+    "JPEG": "jpg",
+    "JPG": "jpg",
+    "HEIC": "heic",
+    "HEIF": "heic",
+    "PNG": "png",
+    "GIF": "gif",
+    "TIFF": "tif",
+    "TIF": "tif",
+    "BMP": "bmp",
+    "WEBP": "webp",
+    "DNG": "dng",
+    "CR2": "cr2",
+    "NEF": "nef",
+    "ARW": "arw",
+}
+
 
 IMAGE_EXTENSIONS = {
     ".jpg",
@@ -150,12 +168,10 @@ class ImageAnalyzer:
         self,
         source_root: str,
         logger,
-        detect_true_ext: bool = True,
         max_workers: Optional[int] = None,
     ):
         self.source_root = Path(source_root)
         self.logger = logger
-        self.detect_true_ext = detect_true_ext
         self.max_workers = max_workers or min(32, (os.cpu_count() or 1) + 4)
         self.exif_timeout_files: List[Path] = []
         self.exiftool_available = shutil.which("exiftool") is not None
@@ -256,7 +272,7 @@ class ImageAnalyzer:
         exif_timezone = self._format_timezone(exif_date, exif_offset)
         exif_description = self._get_first_exif_value(image_exif, DESCRIPTION_KEYS)
         exif_tags = self._format_tags(self._get_first_exif_value(image_exif, TAGS_KEYS))
-        exif_ext = self._get_true_extension(file_path)
+        exif_ext = self._get_file_type_extension(file_path, image_exif)
 
         # Calculate derived fields
         filename_time = self._extract_filename_time(file_path.name)
@@ -475,23 +491,18 @@ class ImageAnalyzer:
         minutes = int(match.group(3) or 0)
         return sign * (hours * 60 + minutes)
 
-    def _get_true_extension(self, file_path: Path) -> str:
-        if not self.detect_true_ext:
-            return file_path.suffix.lower().lstrip(".")
-        try:
-            from PIL import Image
-
-            with Image.open(file_path) as image:
-                fmt = (image.format or "").lower()
-        except Exception:
-            return file_path.suffix.lower().lstrip(".")
-
-        mapping = {
-            "jpeg": "jpg",
-            "tiff": "tif",
-            "heif": "heic",
-        }
-        return mapping.get(fmt, fmt or file_path.suffix.lower().lstrip("."))
+    def _get_file_type_extension(self, file_path: Path, exif_data: Dict) -> str:
+        """Extract file type extension from ExifTool File Type field."""
+        # Try to get File Type from ExifTool output
+        file_type = exif_data.get("File Type") or exif_data.get("FileType") or ""
+        if file_type:
+            # Map ExifTool File Type to extension
+            ext = FILE_TYPE_TO_EXT.get(file_type.upper())
+            if ext:
+                return ext
+        
+        # Fallback to file extension if File Type not available
+        return file_path.suffix.lower().lstrip(".")
 
     def _extract_xmp_tags(self, file_path: Path) -> List[str]:
         try:

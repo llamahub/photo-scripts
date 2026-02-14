@@ -44,16 +44,6 @@ SCRIPT_ARGUMENTS = {
         "positional": True,
         "help": "Output CSV file for analysis (default: .log/analyze_YYYY-MM-DD_HHMM.csv)",
     },
-    "fast": {
-        "flag": "--fast",
-        "action": "store_true",
-        "help": "Skip true-extension detection for faster scans",
-    },
-    "add_true_ext": {
-        "flag": "--add-true-ext",
-        "action": "store_true",
-        "help": "Enable true extension detection (slower on large libraries)",
-    },
 }
 
 ARGUMENTS = merge_arguments(create_standard_arguments(), SCRIPT_ARGUMENTS)
@@ -83,8 +73,6 @@ def main() -> int:
     config_map = {
         "source": "Source Folder",
         "output": "Output CSV file",
-        "fast": "Fast mode",
-        "add_true_ext": "Add true extension",
     }
     parser.display_configuration(resolved_args, config_map)
 
@@ -102,18 +90,11 @@ def main() -> int:
 
     logger.info(f"Source Folder: {source_folder}")
     logger.info(f"Output file: {output_file}")
-
-    fast_mode = resolved_args.get("fast")
-    add_true_ext = resolved_args.get("add_true_ext") and not fast_mode
-    if fast_mode:
-        logger.info("Fast mode enabled (skipping true-extension detection)")
-    elif add_true_ext:
-        logger.info("True-extension detection enabled")
+    logger.info("Using ExifTool for accurate file type detection")
 
     analyzer = ImageAnalyzer(
         source_folder,
         logger,
-        detect_true_ext=add_true_ext,
     )
     try:
         rows = analyzer.analyze_to_csv(output_file)

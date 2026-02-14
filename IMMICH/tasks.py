@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 from invoke import task
+import subprocess
 
 # Add COMMON directory to path and import common tasks
 common_dir = Path(__file__).parent.parent / "COMMON"
@@ -101,3 +102,19 @@ def r_shortcut(ctx, n=None, a=""):
 #     """Override the common run task with project-specific behavior."""
 #     # Custom implementation here
 #     pass
+
+@task
+def test(ctx, integration=False, unit=False, coverage=False, all=False):
+    """Run tests. Use --integration for integration tests, --unit for unit tests, --all for all tests."""
+    task_header("test", "Run tests with coverage" if coverage else "Run tests", ctx, integration=integration, unit=unit, all=all)
+    ensure_venv(ctx)
+    pytest_args = []
+    if coverage:
+        pytest_args.append("--cov")
+    if all:
+        pass  # No marker filter, run all tests
+    elif integration:
+        pytest_args.extend(["-m", "'integration'"])
+    else:
+        pytest_args.extend(["-m", "'not integration'"])
+    ctx.run(f".venv/bin/pytest {' '.join(pytest_args)}", pty=True)
