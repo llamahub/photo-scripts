@@ -2,7 +2,7 @@
   "folders": [
     {
       "name": "Photo Scripts Root",
-      "path": "."
+      "path": ".."
     },
     {
       "name": "COMMON Framework",
@@ -10,11 +10,11 @@
     },
     {
       "name": "EXIF Project",
-      "path": "./EXIF"
+      "path": "../EXIF"
     },
     {
       "name": "IMMICH Project",
-      "path": "./IMMICH"
+      "path": "../IMMICH"
     }
   ],
   "settings": {

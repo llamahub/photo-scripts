@@ -102,3 +102,5 @@ main required arguments should be both positional and named where applicable. ot
 ```
 
 - Always include a --dry-run flag for scripts that modify or move files, to allow users to preview actions without making changes.
+
+IMPORTANT: As a general rule - do NOT add fallback logic for missing information.  I would generally prefer to see meaningful errors rather than assumed logic.  If there is a question about whether a fallback would be helpful, pleae confirm it first before adding it. The goal is to keep the code as clean and simple as possible and avoid adding unnecessary complexity with multiple layers of fallback logic.  If there is a common scenario where users might forget to provide necessary information, we can consider adding validation checks that prompt the user to provide that information rather than trying to guess it in the code.
