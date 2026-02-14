@@ -8,6 +8,10 @@ import csv
 import pytest
 from pathlib import Path
 import glob
+from dotenv import load_dotenv
+
+# Load .env file if it exists
+load_dotenv()
 
 SAMPLES_SRC = os.environ.get("SANTEE_SAMPLES_SRC", "/mnt/photo_drive/santee-samples.bak")
 
