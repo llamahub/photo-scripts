@@ -223,3 +223,67 @@ class ImmichConnection:
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error fetching album info for {album_id}: {e}")
             return None
+    
+    def delete_assets(self, asset_ids: List[str], force: bool = False) -> bool:
+        """
+        Delete assets from Immich.
+        
+        Args:
+            asset_ids: List of asset IDs to delete
+            force: If True, permanently delete (bypass trash). If False, move to trash.
+            
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        if not asset_ids:
+            return True
+        
+        try:
+            payload = {
+                "ids": asset_ids,
+                "force": force
+            }
+            resp = self.session.delete(
+                f"{self.base_url}/api/assets",
+                json=payload
+            )
+            resp.raise_for_status()
+            return True
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error deleting assets: {e}")
+            return False
+    
+    def get_libraries(self) -> List[Dict[str, Any]]:
+        """
+        Get all libraries from Immich.
+        
+        Returns:
+            List of library dictionaries with id, name, type, etc.
+        """
+        try:
+            resp = self.session.get(f"{self.base_url}/api/libraries")
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error fetching libraries: {e}")
+            return []
+    
+    def scan_library(self, library_id: str) -> bool:
+        """
+        Trigger library scan to re-import assets.
+        
+        Args:
+            library_id: Library ID to scan
+            
+        Returns:
+            True if scan triggered successfully, False otherwise
+        """
+        try:
+            resp = self.session.post(
+                f"{self.base_url}/api/libraries/{library_id}/scan"
+            )
+            # 204 No Content is the expected success response
+            return resp.status_code == 204
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error triggering library scan: {e}")
+            return False
