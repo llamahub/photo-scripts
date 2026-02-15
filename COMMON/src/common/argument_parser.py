@@ -35,6 +35,7 @@ Usage:
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Dict, Any, List
 
 
@@ -127,8 +128,17 @@ class ScriptArgumentParser:
 
         lines.append("")
         lines.append("Examples:")
+        script_name = Path(sys.argv[0]).stem
         for example in self.script_info["examples"]:
-            lines.append(f"  %(prog)s {example}")
+            example_args = example.strip()
+            if example_args:
+                lines.append(
+                    f"  invoke run --script {script_name} --args \"{example_args}\""
+                )
+                lines.append(f"  ./run {script_name} {example_args}")
+            else:
+                lines.append(f"  invoke run --script {script_name}")
+                lines.append(f"  ./run {script_name}")
 
         return "\n".join(lines)
 
