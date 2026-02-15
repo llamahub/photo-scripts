@@ -46,6 +46,22 @@ install_linux() {
         echo "✓ Python 3 venv already installed"
     fi
     
+    # Install SSH client for remote operations
+    if ! command_exists ssh; then
+        echo "Installing OpenSSH client for remote operations..."
+        sudo apt install -y openssh-client
+    else
+        echo "✓ OpenSSH client already installed"
+    fi
+    
+    # Install SSHFS for remote filesystem mounting
+    if ! command_exists sshfs; then
+        echo "Installing SSHFS for remote filesystem mounting..."
+        sudo apt install -y sshfs
+    else
+        echo "✓ SSHFS already installed"
+    fi
+    
     # Install ExifTool
     if ! command_exists exiftool; then
         echo "Installing ExifTool for EXIF metadata processing..."

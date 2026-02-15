@@ -14,7 +14,6 @@
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "uname -a",
 	"postCreateCommand": ".devcontainer/post-create.sh",
-	//"postCreateCommand": "./setup-system-deps.sh && ln -sfn /mnt/photo_drive_local /mnt/photo_drive && ln -snf /usr/share/zoneinfo/America/New_York /etc/localtime && echo America/New_York | tee /etc/timezone",
 	"containerEnv": {
 		"TZ": "America/New_York"
 	},
@@ -22,13 +21,19 @@
 	// Mount Movies folder from host to access media files
 	"mounts": [
 		"source=${localEnv:HOME}/Movies,target=/media/Movies,type=bind,consistency=cached",
-		"source=/Volumes/photo_drive,target=/mnt/photo_drive_remote,type=bind,consistency=cached",
-		"source=${localEnv:HOME}/Pictures,target=/mnt/photo_drive_local,type=bind,consistency=cached"
+		"source=${localEnv:HOME}/Pictures,target=/mnt/photo_drive_local,type=bind,consistency=cached",
+		// Mount SSH keys from host for server access
+		"source=${localEnv:HOME}/.ssh,target=/root/.ssh-host,type=bind,consistency=cached,readonly"
 	],
 
 	// Configure tool-specific properties.
 	// "customizations": {},
 
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
-	"remoteUser": "root"
+	"remoteUser": "root",
+	"runArgs": [
+		"--device=/dev/fuse",
+		"--cap-add=SYS_ADMIN",
+		"--security-opt=apparmor:unconfined"
+	]
 }
