@@ -182,6 +182,10 @@ class ScriptArgumentParser:
                     kwargs["dest"] = arg_def["dest"]
                 if arg_def.get("action"):
                     kwargs["action"] = arg_def["action"]
+                if arg_def.get("nargs") is not None:
+                    kwargs["nargs"] = arg_def["nargs"]
+                if arg_def.get("const") is not None:
+                    kwargs["const"] = arg_def["const"]
                 if arg_def.get("type"):
                     kwargs["type"] = arg_def["type"]
                 if arg_def.get("default") is not None:

@@ -179,6 +179,22 @@ class TestImmichConnection:
         
         assert info is not None
         assert info["albumName"] == "Test Album"
+
+    @patch('immich_connection.requests.Session.get')
+    def test_get_queues(self, mock_get, mock_connection):
+        """Test fetching queue status list."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [
+            {"name": "library", "isPaused": False, "statistics": {"active": 0}},
+            {"name": "metadataExtraction", "isPaused": False, "statistics": {"active": 1}},
+        ]
+        mock_get.return_value = mock_response
+
+        queues = mock_connection.get_queues()
+
+        assert len(queues) == 2
+        assert queues[0]["name"] == "library"
     
     def test_extract_assets_from_response_format1(self, mock_connection):
         """Test extracting assets from format 1."""

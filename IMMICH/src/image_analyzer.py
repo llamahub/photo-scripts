@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+from naming_policy import NamingPolicy
+
 # Mapping from ExifTool File Type to normalized extension
 FILE_TYPE_TO_EXT = {
     "JPEG": "jpg",
@@ -563,36 +565,17 @@ class ImageAnalyzer:
 
     def _extract_descriptive_parent_folder(self, parent_name: str) -> str:
         """Extract non-date text from parent folder name, or return empty if purely date-based."""
-        if self._is_date_only(parent_name):
-            return ""
-        # Strip version suffixes like _01, _02, etc. that appear after the descriptive text
-        parent_name = re.sub(r"_\d+$", "", parent_name)
-        return parent_name
+        return NamingPolicy.extract_descriptive_parent_folder(parent_name)
 
     def _strip_duplicate_info_from_basename(
         self, basename: str, parent_folder: str, dimensions: str
     ) -> str:
         """Remove duplicate info from basename (date prefix, dimensions, parent folder)."""
-        if not basename:
-            return ""
-
-        # Remove leading normalized prefix: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_
-        # This handles already-normalized filenames from previous runs
-        basename = re.sub(r"^\d{4}-\d{2}-\d{2}_\d{4}_\d+x\d+_", "", basename)
-
-        # Now remove the descriptive (non-date) part of parent folder if present
-        parent_desc = self._extract_descriptive_parent_folder(parent_folder)
-        if parent_desc:
-            # Try exact match first (parent folder with spaces/hyphens as-is)
-            if basename.startswith(parent_desc):
-                basename = basename[len(parent_desc):].lstrip("_").strip()
-            else:
-                # Try with underscores replacing spaces/hyphens
-                parent_pattern = re.sub(r"[\s_-]+", "_", parent_desc)
-                if basename.startswith(parent_pattern):
-                    basename = basename[len(parent_pattern):].lstrip("_").strip()
-
-        return basename if basename else "UNKNOWN"
+        return NamingPolicy.strip_duplicate_info_from_basename(
+            basename=basename,
+            parent_folder=parent_folder,
+            dimensions=dimensions,
+        )
 
     def _get_image_dimensions(self, image_exif: Dict) -> str:
         """Extract and format image dimensions from EXIF, or try reading from file directly."""
@@ -922,31 +905,21 @@ class ImageAnalyzer:
         """
         Calculate normalized filename: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
         """
-        if not calc_date:
-            return original_filename
-
-        # Extract date part from calc_date (YYYY-MM-DD)
-        date_part = calc_date[:10] if len(calc_date) >= 10 else calc_date
-        
-        # Extract time part (HHMM) from the chosen source
-        time_part = time_part or "0000"
-
-        # Get dimensions
         dimensions = self._get_image_dimensions(image_exif)
-
-        # Get descriptive parent folder (or empty if date-only)
-        parent_desc = self._extract_descriptive_parent_folder(parent_folder)
-
-        # Get basename and strip duplicates
-        basename = self._strip_duplicate_info_from_basename(original_filename, parent_folder, dimensions)
-
-        # Build filename: YYYY-MM-DD_HHMM_WIDTHxHEIGHT_PARENT_BASENAME.EXT
-        if parent_desc:
-            filename = f"{date_part}_{time_part}_{dimensions}_{parent_desc}_{basename}.{ext}"
-        else:
-            filename = f"{date_part}_{time_part}_{dimensions}_{basename}.{ext}"
-
-        return filename
+        parent_desc = NamingPolicy.extract_descriptive_parent_folder(parent_folder)
+        basename = NamingPolicy.strip_duplicate_info_from_basename(
+            original_filename,
+            parent_folder,
+            dimensions,
+        )
+        return NamingPolicy.calculate_calc_filename(
+            calc_date=calc_date,
+            time_part=time_part,
+            dimensions=dimensions,
+            parent_desc=parent_desc,
+            basename=basename,
+            ext=ext,
+        )
 
     def _calculate_calc_status(
         self, original_path: str, calc_path: str, calc_filename: str
@@ -958,77 +931,21 @@ class ImageAnalyzer:
         - RENAME: Same path but filename differs
         - MOVE: Different path
         """
-        # Reconstruct what the full path would be
-        reconstructed_path = str(Path(calc_path) / calc_filename)
-        
-        if original_path == reconstructed_path:
-            return "MATCH"
-
-        orig_parent = str(Path(original_path).parent)
-        calc_parent = str(Path(calc_path))
-        if orig_parent == calc_parent:
-            return "RENAME"
-
-        return "MOVE"
-        
-        # Extract components for comparison
-        orig_filename = Path(original_path).name
-        calc_filename_only = Path(reconstructed_path).name
-        
-        # Check if dates differ (but first 10 chars should match date)
-        if original_filename_date and original_filename_date != calc_date:
-            return "DATE_MISMATCH"
-        
-        # Check if parent folder differs
-        orig_parent = Path(original_path).parent.name
-        calc_parent_desc = self._extract_descriptive_parent_folder(original_parent_folder)
-        if calc_parent_desc and orig_parent != original_parent_folder:
-            # Check if the descriptive parts at least match (ignoring version suffixes)
-            orig_parent_desc = self._extract_descriptive_parent_folder(orig_parent)
-            if orig_parent_desc != calc_parent_desc:
-                return "FOLDER_DIFF"
-        
-        # Check if time differs (UTC offset issue)
-        orig_time = orig_filename.split('_')[1] if len(orig_filename.split('_')) > 1 else ''
-        calc_time = calc_filename_only.split('_')[1] if len(calc_filename_only.split('_')) > 1 else ''
-        if orig_time and calc_time and orig_time != calc_time:
-            return "TIME_DIFF"
-        
-        # Check if format changed (normalized vs non-normalized)
-        if not orig_filename[:10].count('-') == 2:  # Original not in YYYY-MM-DD format
-            if calc_filename_only[:10].count('-') == 2:  # Calc is in YYYY-MM-DD format
-                return "FORMAT_CHANGED"
-        
-        return "OTHER"
+        return NamingPolicy.calculate_calc_status(
+            original_path,
+            calc_path,
+            calc_filename,
+        )
 
     def _calculate_calc_path(self, calc_date: str, parent_folder: str, calc_filename: str) -> str:
         """
         Calculate organized path: source_root/<decade>/<year>/<year>-<month>/<parent> (folder only, no filename)
         """
-        if not calc_date or len(calc_date) < 10:
-            return str(self.source_root)
-
-        # Extract year and month from calc_date (YYYY-MM-DD)
-        year = calc_date[:4]
-        month = calc_date[5:7]
-
-        # Calculate decade (e.g., 2020, 2010, 1990)
-        try:
-            year_int = int(year)
-            decade = (year_int // 10) * 10
-        except ValueError:
-            decade = 0
-
-        # Get descriptive parent folder (or empty if date-only)
-        parent_desc = self._extract_descriptive_parent_folder(parent_folder)
-
-        # Build path: source_root/<decade>/<year>/<year>-<month>/<parent> (folder only)
-        if parent_desc:
-            path = str(self.source_root / f"{decade}+/{year}/{year}-{month}/{parent_desc}")
-        else:
-            path = str(self.source_root / f"{decade}+/{year}/{year}-{month}")
-
-        return path
+        return NamingPolicy.calculate_calc_path(
+            source_root=str(self.source_root),
+            calc_date=calc_date,
+            parent_folder=parent_folder,
+        )
 
     def _csv_headers(self) -> List[str]:
         return [

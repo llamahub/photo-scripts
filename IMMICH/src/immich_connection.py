@@ -252,6 +252,22 @@ class ImmichConnection:
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error deleting assets: {e}")
             return False
+
+    def get_queues(self) -> List[Dict[str, Any]]:
+        """
+        Get queue status for all queues.
+
+        Returns:
+            List of queue dictionaries
+        """
+        try:
+            resp = self.session.get(f"{self.base_url}/api/queues")
+            resp.raise_for_status()
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error fetching queues: {e}")
+            raise
     
     def get_libraries(self) -> List[Dict[str, Any]]:
         """

@@ -15,6 +15,8 @@ from typing import Dict, List, Optional
 
 from zoneinfo import ZoneInfo
 
+from naming_policy import NamingPolicy
+
 
 SELECTED_VALUES = {"y", "yes", "true"}
 HEIC_EXTENSIONS = {".heic", ".heif"}
@@ -481,21 +483,11 @@ class ImageUpdater:
         calc_path: str,
         exif_datetime: str,
     ) -> str:
-        normalized = calc_filename or ""
-
-        if exif_datetime:
-            date_part = exif_datetime.split(" ")[0].replace(":", "-")
-            if re.match(r"^\d{4}-\d{2}-\d{2}$", date_part):
-                if re.match(r"^\d{4}-\d{2}-\d{2}", normalized):
-                    normalized_date = normalized[:10]
-                    if normalized_date != date_part:
-                        normalized = date_part + normalized[10:]
-
-        parent_desc = Path(calc_path).name if calc_path else ""
-        if parent_desc:
-            normalized = normalized.replace(f"{parent_desc}__", f"{parent_desc}_", 1)
-
-        return normalized
+        return NamingPolicy.normalize_calc_filename(
+            calc_filename=calc_filename,
+            exif_datetime=exif_datetime,
+            calc_path=calc_path,
+        )
 
     def _rename_file_to_correct_extension(self, file_path: str, calc_filename: str) -> str:
         """
