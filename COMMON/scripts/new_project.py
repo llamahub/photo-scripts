@@ -108,6 +108,12 @@ def main() -> int:
     if not source_project:
         source_project = _prompt_required_value("Enter source/model project name:", logger)
 
+    try:
+        scaffolder.validate_model_project(source_project)
+    except Exception as exc:
+        logger.error(f"Invalid model project selection: {exc}")
+        return 1
+
     if not target_project:
         target_project = _prompt_required_value("Enter target/new project folder name:", logger)
 

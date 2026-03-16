@@ -134,6 +134,35 @@ def test_list_model_projects_only_returns_valid_projects(scaffold_fixture):
     assert scaffolder.list_model_projects() == ["EXIF", "IMMICH"]
 
 
+def test_validate_model_project_returns_path_for_valid_project(scaffold_fixture):
+    """Valid model projects resolve to their project path."""
+    scaffolder = _build_scaffolder(scaffold_fixture)
+
+    model_path = scaffolder.validate_model_project("EXIF")
+
+    assert model_path == scaffold_fixture["monorepo_root"] / "EXIF"
+
+
+def test_validate_model_project_fails_for_missing_project(scaffold_fixture):
+    """Missing model projects fail validation immediately."""
+    scaffolder = _build_scaffolder(scaffold_fixture)
+
+    with pytest.raises(FileNotFoundError):
+        scaffolder.validate_model_project("WORKFLOW")
+
+
+def test_validate_model_project_rejects_common_root(scaffold_fixture):
+    """COMMON itself is not treated as a valid model project."""
+    common_root = scaffold_fixture["common_root"]
+    for filename in MODEL_FILES_TO_COPY:
+        (common_root / filename).write_text("placeholder\n", encoding="utf-8")
+
+    scaffolder = _build_scaffolder(scaffold_fixture)
+
+    with pytest.raises(ValueError):
+        scaffolder.validate_model_project("COMMON")
+
+
 def test_scaffold_creates_new_project_and_copies_required_files(scaffold_fixture):
     """A new project scaffold includes model files and adjusted template imports."""
     scaffolder = _build_scaffolder(scaffold_fixture)

@@ -73,6 +73,9 @@ class RecordingScaffolder:
     def list_model_projects(self):
         return ["EXIF", "IMMICH"]
 
+    def validate_model_project(self, model_project):
+        return Path("/repo") / model_project
+
     def scaffold(self, target_project, model_project):
         self.__class__.calls.append((target_project, model_project, self.dry_run))
         return Path("/tmp") / target_project
@@ -83,6 +86,13 @@ class FailingScaffolder(RecordingScaffolder):
 
     def scaffold(self, target_project, model_project):
         raise FileExistsError(f"Already exists: {target_project}")
+
+
+class InvalidModelScaffolder(RecordingScaffolder):
+    """Scaffolder test double that rejects selected model projects."""
+
+    def validate_model_project(self, model_project):
+        raise FileNotFoundError(f"Model project does not exist: {model_project}")
 
 
 def _patch_common_script_methods(monkeypatch, logger):
@@ -184,3 +194,24 @@ def test_main_returns_error_when_scaffolding_fails(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["new_project.py", "EXIF", "--target", "NEWPROJECT"])
 
     assert new_project.main() == 1
+
+
+def test_main_returns_error_before_prompting_for_target_when_model_invalid(monkeypatch):
+    """An invalid model project fails immediately and does not ask for target input."""
+    logger = MockLogger()
+    _patch_common_script_methods(monkeypatch, logger)
+
+    monkeypatch.setattr(new_project, "ProjectScaffolder", InvalidModelScaffolder)
+    monkeypatch.setattr(sys, "argv", ["new_project.py"])
+
+    prompts = []
+    entered_values = iter(["WORKFLOW"])
+
+    def fake_input(_prompt):
+        prompts.append("prompt")
+        return next(entered_values)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    assert new_project.main() == 1
+    assert prompts == ["prompt"]

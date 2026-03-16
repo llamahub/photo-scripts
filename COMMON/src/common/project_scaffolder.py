@@ -50,7 +50,7 @@ class ProjectScaffolder:
             if not candidate.is_dir() or candidate.name.startswith("."):
                 continue
 
-            if candidate.name == self.common_root.name:
+            if candidate.resolve() == self.common_root:
                 continue
 
             if self._is_valid_model_project(candidate):
@@ -61,15 +61,9 @@ class ProjectScaffolder:
     def scaffold(self, target_project: str, model_project: str) -> Path:
         """Create a new project scaffold from a model project and COMMON templates."""
         target_name = self._validate_project_name(target_project, "target project")
-        model_name = self._validate_project_name(model_project, "model project")
-
-        model_path = self.monorepo_root / model_name
+        model_path = self.validate_model_project(model_project)
+        model_name = model_path.name
         target_path = self.monorepo_root / target_name
-
-        if not model_path.exists() or not model_path.is_dir():
-            raise FileNotFoundError(f"Model project does not exist: {model_path}")
-
-        self._validate_model_files(model_path)
 
         if target_path.exists():
             raise FileExistsError(f"Target project already exists: {target_path}")
@@ -87,6 +81,20 @@ class ProjectScaffolder:
             self.logger.info(f"Project scaffold created successfully: {target_path}")
 
         return target_path
+
+    def validate_model_project(self, model_project: str) -> Path:
+        """Validate the selected model project and return its path."""
+        model_name = self._validate_project_name(model_project, "model project")
+        model_path = self.monorepo_root / model_name
+
+        if not model_path.exists() or not model_path.is_dir():
+            raise FileNotFoundError(f"Model project does not exist: {model_path}")
+
+        if model_path.resolve() == self.common_root:
+            raise ValueError(f"Model project cannot be COMMON: {model_path}")
+
+        self._validate_model_files(model_path)
+        return model_path
 
     def _is_valid_model_project(self, project_path: Path) -> bool:
         return all((project_path / filename).exists() for filename in self.model_files)
