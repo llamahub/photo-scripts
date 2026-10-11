@@ -1,3 +1,7 @@
+---
+status: done
+---
+
 # Implementation Plan: Calc Columns for analyze.py
 
 ## Executive Summary

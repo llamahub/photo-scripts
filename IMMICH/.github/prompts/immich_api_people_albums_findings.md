@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 # Immich API Findings: People and Albums Per Asset
 
 Date: 2026-02-15

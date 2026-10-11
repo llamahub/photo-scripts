@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 Migrate designated script to use common pattern shown in example_script.py
 
 Please take the script I ask you to migrate and refactor it to use the same consistent style and structure for defining and parsing command-line arguments as shown in the example_script.py file in both EXIF and COMMON.

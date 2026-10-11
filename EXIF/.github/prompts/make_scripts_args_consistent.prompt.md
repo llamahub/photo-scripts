@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 
 
 I want each of my EXIF and COMMON scripts to use a consistent style and structure for defining and parsing command-line arguments.

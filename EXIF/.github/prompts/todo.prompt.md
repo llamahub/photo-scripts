@@ -1,1 +1,5 @@
+---
+status: open
+---
+
 for moving files with organize script - it includes XMP files.  can we make sure it includes all types of sidecar files for a given image (including the metadata files found in the takeout script?)

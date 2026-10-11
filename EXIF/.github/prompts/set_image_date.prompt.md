@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 I want a script in EXIF/script called set_image_dates.py that follows the common architecture framework and guidelines + testing with these args:
 
 consider these documens:

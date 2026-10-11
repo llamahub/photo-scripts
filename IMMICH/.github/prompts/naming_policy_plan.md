@@ -1,3 +1,7 @@
+---
+status: done
+---
+
 # Naming Policy Plan
 
 Date: 2026-02-15

@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 [cache] Script to extract metadata from Immich into a cache and map it to files in target folder
 --------------------------------------------------------------------------------
 

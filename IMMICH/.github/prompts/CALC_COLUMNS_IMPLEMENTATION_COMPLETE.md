@@ -1,3 +1,7 @@
+---
+status: done
+---
+
 # Calc Columns Implementation - Complete ✅
 
 ## Summary
