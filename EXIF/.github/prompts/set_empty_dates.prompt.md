@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 **IMPORTANT**: Follow ALL guidelines in [new_script.md](new_script.md)
 
 * **Script Name**: set_empty_dates.py

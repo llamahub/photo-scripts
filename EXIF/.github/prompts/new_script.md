@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 [new_script] New script prompt template
 --------------------------------------------------------------------------------
 

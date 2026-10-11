@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 [new_script] Instructions for creating a new script
 --------------------------------------------------------------------------------
 

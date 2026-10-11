@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 ## Objectives
 - Image files in a *{files_library}* to be maintained in a standardized chronological folder structure with standardized naming convention that signals critical metadata about the image asset.  (date,time,height,width,event, original filename)
 - All critical metadata captured into the files themselves (via EXIF) so that the file becomes the golden source with EXIF data matching the data that is in the filename.

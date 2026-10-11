@@ -1,3 +1,7 @@
+---
+status: reference
+---
+
 
 [WORKFLOW.md] Document Photo Scripts Worflows
 ================================================================================
